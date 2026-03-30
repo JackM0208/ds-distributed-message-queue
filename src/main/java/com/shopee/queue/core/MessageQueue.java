@@ -1,16 +1,17 @@
 package com.shopee.queue.core;
 
 /**
- * ROLE: The Logical Queue.
- * WHAT IT DOES: Represents one specific topic. Assigns the auto-incrementing Offset ID to incoming messages.
- * RELATIONSHIPS: Owned by `QueueManager`. Wraps and delegates actual saving to `StorageManager`.
+ * Representation of a topic-specific message queue.
+ * Encapsulates the metadata and logic associated with a single topic.
  */
 public class MessageQueue {
     private final String topicName;
-    // TODO: Maintain current offset
-    // TODO: Reference to StorageManager
 
     public MessageQueue(String topicName) {
         this.topicName = topicName;
+    }
+
+    public String getTopicName() {
+        return topicName;
     }
 }

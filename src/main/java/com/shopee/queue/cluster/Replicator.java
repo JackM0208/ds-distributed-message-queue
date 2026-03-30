@@ -1,11 +1,17 @@
 package com.shopee.queue.cluster;
 
 /**
- * ROLE: The Data Copier.
- * WHAT IT DOES: If this broker is the Leader, this class tails the `LogSegment` and forwards newly appended bytes to Follower brokers via internal TCP sockets.
- * RELATIONSHIPS: Reads from `StorageManager`, sends data to other nodes' `TcpServer`.
+ * Handles the logic for replicating message data from the leader to followers.
+ * Ensures the distributed log is consistent across the cluster.
  */
 public class Replicator {
-    // TODO: Tail LogSegments
-    // TODO: Send data to other brokers in the cluster
+    
+    /**
+     * Pushes message segments to a set of target nodes.
+     * @param targetNodes list of node identifiers.
+     * @param data byte array to replicate.
+     */
+    public void pushToFollowers(String[] targetNodes, byte[] data) {
+        // Data push logic
+    }
 }

@@ -1,12 +1,25 @@
 package com.shopee.queue.client;
 
 /**
- * ROLE: The External Reader API.
- * WHAT IT DOES: A library for the Shopee Payment Server. Polls the broker for new messages and sends back Acknowledgments (ACKs) when done.
- * RELATIONSHIPS: Talks to the Broker's `TcpServer`.
+ * Client-side SDK for consuming messages from the distributed queue.
+ * Periodically pulls messages from a given topic and offset.
  */
 public class Consumer {
-    // TODO: Connect to Broker
-    // TODO: Poll for MessagePackets
-    // TODO: Send ACKs
+    private String brokerAddress;
+    private String consumerGroup;
+
+    public Consumer(String brokerAddress, String consumerGroup) {
+        this.brokerAddress = brokerAddress;
+        this.consumerGroup = consumerGroup;
+    }
+
+    /**
+     * Polls the broker for new messages in a topic.
+     * @param topic Topic to poll.
+     * @return byte[] message data.
+     */
+    public byte[] poll(String topic) {
+        // Poll logic
+        return new byte[0];
+    }
 }

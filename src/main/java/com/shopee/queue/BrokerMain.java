@@ -1,33 +1,84 @@
 package com.shopee.queue;
 
-import com.shopee.queue.core.IQueueService;
-import com.shopee.queue.core.QueueManager;
-import com.shopee.queue.storage.IStorageEngine;
-import com.shopee.queue.storage.StorageManager;
-import com.shopee.queue.cluster.IConsensusModule;
-import com.shopee.queue.cluster.RaftNode;
-import com.shopee.queue.network.TcpServer;
+import com.shopee.queue.api.IServer;
+import com.shopee.queue.api.IQueueManager;
+import com.shopee.queue.api.IStorageManager;
+import com.shopee.queue.api.IClusterNode;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 /**
- * ROLE: The Entry Point.
- * WHAT IT DOES: The `public static void main` method. It wires everything together using Interfaces.
- * RELATIONSHIPS: Instantiates the implementations and injects them into the respective modules.
+ * <h1>BrokerMain - The Assembler</h1>
+ * <p>
+ * This class is the entry point of the Distributed Message Queue Broker.
+ * Its primary responsibility is Dependency Injection and Lifecycle Management.
+ * </p>
+ * 
+ * <h3>The Role of the Assembler:</h3>
+ * <ul>
+ *     <li><b>Component Orchestration:</b> It wires together the Network Layer (Netty), 
+ *         the Core Logic (Queue Management), the Storage Engine (Log/Index), 
+ *         and the Consensus Module (Raft).</li>
+ *     <li><b>Graceful Shutdown:</b> It ensures that all components are stopped 
+ *         in the correct order (e.g., stopping the server before flushing logs).</li>
+ *     <li><b>Configuration Loading:</b> It initializes the system based on 
+ *         {@code BrokerConfig}.</li>
+ * </ul>
+ * 
+ * <h3>Design Philosophy:</h3>
+ * <p>
+ * By separating the assembly logic from the business logic, we achieve a 
+ * "Plug-and-Play" architecture. For example, we could swap the Raft-based 
+ * {@code IClusterNode} with a standalone implementation without touching 
+ * the {@code IServer} logic.
+ * </p>
  */
 public class BrokerMain {
+    private static final Logger logger = LoggerFactory.getLogger(BrokerMain.class);
+
+    private final IServer server;
+    private final IQueueManager queueManager;
+    private final IStorageManager storageManager;
+    private final IClusterNode clusterNode;
+
+    /**
+     * Constructs the Broker by injecting all major components.
+     * 
+     * @param server The network server (e.g., Netty implementation)
+     * @param queueManager The traffic cop managing topics and offsets
+     * @param storageManager The muscle handling physical file I/O
+     * @param clusterNode The brain handling Raft consensus
+     */
+    public BrokerMain(IServer server, 
+                      IQueueManager queueManager, 
+                      IStorageManager storageManager, 
+                      IClusterNode clusterNode) {
+        this.server = server;
+        this.queueManager = queueManager;
+        this.storageManager = storageManager;
+        this.clusterNode = clusterNode;
+    }
+
+    /**
+     * Starts the broker and all its sub-components.
+     */
+    public void start() {
+        logger.info("Starting Distributed Message Queue Broker...");
+        // 1. Initialize Storage (e.g., recover segments from disk)
+        // 2. Start Cluster Node (e.g., join Raft group)
+        // 3. Start Server (e.g., bind port 8888)
+    }
+
+    /**
+     * Performs a graceful shutdown of the broker.
+     */
+    public void shutdown() {
+        logger.info("Shutting down Distributed Message Queue Broker...");
+        // Order matters: Stop accepting requests -> finish pending tasks -> flush data -> stop cluster
+    }
+
     public static void main(String[] args) {
-        // 1. Person 2 provides the Storage Engine
-        // IStorageEngine storage = new StorageManager();
-
-        // 2. Person 4 provides the Consensus Module
-        // IConsensusModule consensus = new RaftNode();
-
-        // 3. Person 3 provides the Core Queue Logic (Injects Storage and Consensus)
-        // IQueueService queueService = new QueueManager(storage, consensus);
-
-        // 4. Person 1 provides the Network Server (Injects QueueService)
-        // TcpServer server = new TcpServer(queueService);
-
-        System.out.println("Distributed Message Queue Broker is initialized with interface contracts.");
-        // server.start();
+        // Implementation of instantiation and start-up goes here.
+        // This will involve creating the Impl classes and wiring them.
     }
 }

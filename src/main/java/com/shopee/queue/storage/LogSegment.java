@@ -1,10 +1,22 @@
 package com.shopee.queue.storage;
 
+import java.nio.channels.FileChannel;
+
 /**
- * ROLE: The Muscle (Append-Only Log).
- * WHAT IT DOES: Uses Java NIO to sequentially write raw `MessagePacket` bytes to the physical hard drive.
- * RELATIONSHIPS: Called exclusively by `StorageManager`.
+ * Manages a single log segment file.
+ * Utilizes Java NIO's {@link FileChannel} for high-performance I/O.
+ * Implements "Append-Only" writes, ensuring data is only written at the end 
+ * of the file to maintain high sequential write speeds.
  */
 public class LogSegment {
-    // TODO: Write MessagePacket bytes to disk using FileChannel
+    private FileChannel fileChannel;
+    private long startOffset;
+
+    /**
+     * Appends a message to the segment.
+     * @param data byte array to write.
+     */
+    public void append(byte[] data) {
+        // Log append logic
+    }
 }

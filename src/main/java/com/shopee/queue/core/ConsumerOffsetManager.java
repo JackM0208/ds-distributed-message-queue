@@ -1,10 +1,29 @@
 package com.shopee.queue.core;
 
 /**
- * ROLE: The Crash-Recovery Tracker.
- * WHAT IT DOES: Remembers that "Consumer Group A is currently at offset #500 for shopee-orders". Persists this to a system file.
- * RELATIONSHIPS: Updated by `ClientHandler` when an ACK packet arrives. Read by `ClientHandler` when a consumer reconnects.
+ * Tracks and manages consumer progress within the system.
+ * Keeps a record of the last consumed message offset for each consumer group.
  */
 public class ConsumerOffsetManager {
-    // TODO: Maintain a persistent mapping of (Consumer Group, topic) -> last offset
+
+    /**
+     * Updates the saved offset for a given consumer and topic.
+     * @param consumerId ID of the consumer.
+     * @param topicName Name of the topic.
+     * @param offset Last read offset position.
+     */
+    public void commitOffset(String consumerId, String topicName, long offset) {
+        // Offset commit logic
+    }
+
+    /**
+     * Retrieves the last saved offset for a given consumer and topic.
+     * @param consumerId ID of the consumer.
+     * @param topicName Name of the topic.
+     * @return long last consumed offset.
+     */
+    public long getOffset(String consumerId, String topicName) {
+        // Offset retrieval logic
+        return 0L;
+    }
 }
