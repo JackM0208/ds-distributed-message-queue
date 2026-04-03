@@ -1,14 +1,11 @@
-package com.shopee.mq.network;
+package com.shopee.queue.network;
 
-import com.shopee.queue.network.TcpServerImpl;
 import com.shopee.queue.api.IQueueManager;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
-
-import java.net.Socket;
 
 import static org.junit.jupiter.api.Assertions.assertDoesNotThrow;
 

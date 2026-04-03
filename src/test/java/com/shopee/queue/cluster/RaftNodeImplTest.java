@@ -1,6 +1,5 @@
-package com.shopee.mq.cluster;
+package com.shopee.queue.cluster;
 
-import com.shopee.queue.cluster.RaftNodeImpl;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;

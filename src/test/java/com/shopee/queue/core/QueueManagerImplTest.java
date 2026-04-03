@@ -1,7 +1,6 @@
-package com.shopee.mq.core;
+package com.shopee.queue.core;
 
 import com.shopee.queue.api.IStorageManager;
-import com.shopee.queue.core.QueueManagerImpl;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
