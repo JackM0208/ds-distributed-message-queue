@@ -17,6 +17,7 @@ public class IndexSegment {
      * @param offset relative message offset.
      * @return long physical position in the log file.
      */
+    
     public long getPhysicalPosition(long offset) {
         // Physical position lookup logic
         return 0L;
