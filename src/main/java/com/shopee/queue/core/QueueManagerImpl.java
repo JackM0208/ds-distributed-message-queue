@@ -39,12 +39,13 @@ public class QueueManagerImpl implements IQueueManager {
     public MessagePacket pullMessage(String topicName, long offset){
 
         // hiện tại chưa implement tính năng đọc theo offset. Cần hoàn thiện phần storage
+    	
         MessageQueue queueForThisTopic = map.get(topicName);
         if(queueForThisTopic == null){
             return null;
         }
 
-        return queueForThisTopic.pullMessage();
+        return queueForThisTopic.pullMessage(offset);
         
     }
 }
