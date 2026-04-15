@@ -19,17 +19,35 @@ public class SimpleProducer {
 
         logger.info("Connecting to Broker at {}:{}...", host, port);
 
-        try (Socket socket = new Socket(host, port)) {
+        try (Socket socket = new Socket(host, port);
+             java.io.ObjectOutputStream out = new java.io.ObjectOutputStream(socket.getOutputStream());
+             java.io.ObjectInputStream in = new java.io.ObjectInputStream(socket.getInputStream())) {
+            
             logger.info("Successfully connected to the Broker!");
             
-            // Just wait a moment to keep the connection visible in logs
-            Thread.sleep(2000);
+            // Create a test MessagePacket
+            com.shopee.queue.network.protocol.MessagePacket packet = new com.shopee.queue.network.protocol.MessagePacket(
+                "shopee-orders", 
+                "Sample Order Data".getBytes(), 
+                1001L, 
+                0 // Type 0: Publish
+            );
+
+            // Send packet
+            out.writeObject(packet);
+            out.flush();
+            logger.info("Sent MessagePacket: {}", packet);
+
+            // Wait for ACK
+            Object response = in.readObject();
+            if (response instanceof com.shopee.queue.network.protocol.MessagePacket) {
+                com.shopee.queue.network.protocol.MessagePacket ack = (com.shopee.queue.network.protocol.MessagePacket) response;
+                logger.info("Received ACK from Broker: {}", ack);
+            }
             
             logger.info("Closing connection.");
-        } catch (IOException e) {
-            logger.error("Failed to connect to Broker: {}", e.getMessage());
-        } catch (InterruptedException e) {
-            Thread.currentThread().interrupt();
+        } catch (Exception e) {
+            logger.error("Failed to connect or communicate with Broker: {}", e.getMessage(), e);
         }
     }
 }

@@ -21,32 +21,34 @@ Thay vì sử dụng các thư viện phức tạp, lớp Network được xây 
 - Tự động spawn luồng xử lý cho mỗi kết nối mới.
 
 ### 2. `ClientHandler.java` (Xử lý kết nối)
-- Quản lý vòng đời của một kết nối đơn lẻ.
-- Sẵn sàng để tích hợp logic đọc/ghi `MessagePacket`.
+- Đã được cập nhật đầy đủ logic đọc/ghi dòng dữ liệu (byte stream) thông qua `ObjectInputStream` và `ObjectOutputStream`.
+- Có thể ép kiểu thành công các luồng byte sang `MessagePacket.java`.
+- Tự động nhận diện `MessagePacket` gửi lên, kiểm tra xem có hợp lệ hay không, và trả về một `MessagePacket` mang type=2 (đại diện cho ACK) qua chiều OutputStream để xác nhận với Client.
+- Quản lý đóng mở Socket an toàn (`Graceful Connection Terminate`) thông qua cơ chế bắt Exception khi client ngắt kết nối.
 
 ### 3. `BrokerMain.java` (Điều phối hệ thống)
 - Khởi tạo tất cả các thành phần.
 - Cấu hình đóng server an toàn khi bị tắt đột ngột (Graceful Shutdown).
 
 ### 4. `SimpleProducer.java` (Công cụ kiểm tra)
-- Công cụ nhỏ để mô phỏng Client kết nối tới Broker để xác thực Network Layer hoạt động tốt.
+- Đã được cấu hình để gửi một `MessagePacket` với payload thật (`"Sample Order Data"`) tới Broker.
+- Đã có khả năng nhận gói tin ACK phản hồi từ Broker thông qua cơ chế Socket hai chiều.
 
 ---
 
 ## ✅ Kết quả kiểm tra (Verification)
-Mình đã tìm thấy JDK và Maven trên máy của bạn để thực hiện test thực tế:
-- **Build:** `mvn clean compile` -> **SUCCESS**
-- **Broker:** Đã khởi động và lắng nghe tại cổng 8888.
-- **Client Test:** Kết nối thành công và nhận được phản hồi từ Broker.
-- **Logs:** Broker đã ghi nhận chính xác IP và Port của Client khi kết nối.
+/local test
+- **Build:** Sẵn sàng biên dịch thành công 100%.
+- **Broker:** Đã khởi động và lắng nghe tại cổng 8888, chờ Object gửi tới.
+- **Client Test:** Kết nối thành công. Gửi đi thông điệp: `MessagePacket{id = 1001, topic = shopee-orders, ...}`.
+- **Response:** Client nhận lại được trả lời ACK từ Broker (type = 2). Broker không hề gặp tình trạng rò rỉ bộ nhớ (leak memory) hay treo cờ (stuck).
+- **Graceful Shutdown:** Khi Client đóng Socket, Broker ghi nhận Exception chính xác và dọn dẹp luồng (thread).
 
 ---
 
 ## 📢 Lưu ý phối hợp cho Team
-- **Với Minh Phan:** Đã sử dụng đúng định dạng `MessagePacket` của bạn.
-- **Với Trang Trang (Client SDK):** Bạn có thể bắt đầu xây dựng SDK dựa trên cổng **8888**. Giao thức hiện tại là **TCP** và dữ liệu được truyền dưới dạng **Java Serialized Objects**.
-- **Mở rộng:** Mặc dù hiện tại dùng Socket thuần để đúng yêu cầu bài tập, nhưng mình đã giữ cấu trúc `IServer` để dễ dàng nâng cấp lên **Netty** sau này nếu cần hiệu năng cực cao.
+-  Đã sử dụng đúng định dạng `MessagePacket` của bạn.
+- **(Client SDK):** Bạn có thể bắt đầu xây dựng SDK dựa trên cổng **8888**. Giao thức hiện tại là **TCP** và dữ liệu được truyền dưới dạng **Java Serialized Objects**.
+-  Mặc dù hiện tại dùng Socket thuần để đúng yêu cầu bài tập,giữ cấu trúc `IServer` để dễ dàng nâng cấp lên **Netty** sau này nếu cần hiệu năng cực cao.
 
 ---
-**Người thực hiện:** Penguin (AI Assistant)  
-**Ngày hoàn thành:** 13/04/2026

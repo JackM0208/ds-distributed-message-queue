@@ -22,15 +22,35 @@ public class ClientHandler implements Runnable {
 
     @Override
     public void run() {
-        try {
+        try (
+            java.io.ObjectOutputStream out = new java.io.ObjectOutputStream(clientSocket.getOutputStream());
+            java.io.ObjectInputStream in = new java.io.ObjectInputStream(clientSocket.getInputStream())
+        ) {
             logger.info("Handling request from {}", clientSocket.getRemoteSocketAddress());
             
-            // For now, we just keep the connection open or close it immediately
-            // In the future, this will use ObjectInputStream to read MessagePackets
-            
-            // To simulate work, we'll keep the connection open for a bit
-            // Thread.sleep(1000); 
-
+            while (!clientSocket.isClosed()) {
+                try {
+                    Object obj = in.readObject();
+                    if (obj instanceof com.shopee.queue.network.protocol.MessagePacket) {
+                        com.shopee.queue.network.protocol.MessagePacket packet = (com.shopee.queue.network.protocol.MessagePacket) obj;
+                        logger.info("Received MessagePacket: {}", packet);
+                        
+                        // Send ACK back
+                        com.shopee.queue.network.protocol.MessagePacket ack = new com.shopee.queue.network.protocol.MessagePacket(
+                            packet.getTopic(), 
+                            null, 
+                            packet.getMessageId(), 
+                            2 // type 2 = ACK
+                        );
+                        out.writeObject(ack);
+                        out.flush();
+                        logger.info("Sent ACK for Message ID: {}", packet.getMessageId());
+                    }
+                } catch (java.io.EOFException e) {
+                    logger.info("Client {} disconnected gracefully.", clientSocket.getRemoteSocketAddress());
+                    break;
+                }
+            }
         } catch (Exception e) {
             logger.error("Error in ClientHandler for {}: {}", 
                          clientSocket.getRemoteSocketAddress(), e.getMessage());
