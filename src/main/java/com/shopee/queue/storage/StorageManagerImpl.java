@@ -10,94 +10,80 @@ import java.util.concurrent.atomic.AtomicLong;
 
 /**
  * The Orchestrator for the Storage Layer.
- * Manages directories, segment rotation, and routes read/write requests
- * to the correct Log and Index segments for each topic.
+ * Purpose: Acts as the entry point for all disk operations. It hides the complexity
+ * of file management and segment rotation from the rest of the MQ system.
  */
 public class StorageManagerImpl {
 
-    // The root directory where all data is stored
+    // The folder where everything is saved
     private final String rootDirectory = "data/";
 
-    // Max size of a single .log file before we create a new one (e.g., 1GB)
+    // 1GB limit. Prevents any single file from becoming a "Corrupted Giant"
+    // that is impossible to move or repair.
     private static final long MAX_SEGMENT_SIZE = 1024 * 1024 * 1024L;
 
-    // A Map holding the storage state for every Topic (e.g., "orders" -> TopicStorage)
+    // Thread-safe map: Key is Topic Name, Value is the "Manager" for that topic
     private final Map<String, TopicStorage> topicStorageMap = new ConcurrentHashMap<>();
 
     public StorageManagerImpl() {
+        // Step 1: Ensure the "data/" directory exists on the hard drive
         File rootDir = new File(rootDirectory);
         if (!rootDir.exists()) {
             rootDir.mkdirs();
         }
-        // In a real system, we would scan the folders here to reload existing files after a crash.
     }
 
     /**
-     * 3. Orchestrates writing data to the correct file.
-     * @param topic The topic to write to (e.g., "orders").
-     * @param data The raw message bytes.
-     * @return The globally assigned offset (Message ID) for this data.
+     * Entry point for Producers. Saves a message to disk.
      */
     public long appendToLog(String topic, byte[] data) throws IOException {
-        // 1. Get or create the topic directory and state
+        // 1. Find the storage room for this specific topic
         TopicStorage storage = topicStorageMap.computeIfAbsent(topic, this::createTopicStorage);
 
+        // 2. Lock the topic. We can't have two threads trying to "Rotate" the file at the same time.
         synchronized (storage) {
             SegmentPair activeSegment = storage.getActiveSegment();
 
-            // 2. Segment Rotation: Check if the current file is too full
+            // 3. SEGMENT ROTATION: Is the current file full?
             if (activeSegment.logSegment.getCurrentPosition() + data.length > MAX_SEGMENT_SIZE) {
-                // Close current files and create new ones
-                activeSegment.close();
-                activeSegment = storage.createNewSegment();
+                activeSegment.close(); // Seal the old files
+                activeSegment = storage.createNewSegment(); // Open a brand new Log and Index
             }
 
-            // Assign a new global offset (Message ID)
+            // 4. Assign the Message ID
             long globalOffset = storage.globalOffsetCounter.getAndIncrement();
 
-            // Calculate relative offset for the Index (e.g., Global 1050 - SegmentStart 1000 = Relative 50)
+            // 5. Calculate Local ID (If global is 1050 and file starts at 1000, local is 50)
             long relativeOffset = globalOffset - activeSegment.startOffset;
 
-            // --- THE WRITE WORKFLOW ---
-            // A. Write to Log and get the physical position
+            // 6. WRITE DATA: Save raw bytes to Log, then save bookmark to Index
             long physicalPosition = activeSegment.logSegment.append(data);
-
-            // B. Write to the Smart Index (ID, Position, Length)
             activeSegment.indexSegment.addEntry(relativeOffset, physicalPosition, data.length);
 
-            return globalOffset;
+            return globalOffset; // Return the ID so the Producer knows it's safe
         }
     }
 
     /**
-     * 4. Orchestrates reading data by finding the correct segment.
-     * @param topic The topic to read from.
-     * @param offset The global Message ID.
-     * @return The raw bytes of the message, or null if not found.
+     * Entry point for Consumers. Retrieves a message by its ID.
      */
     public byte[] readFromOffset(String topic, long offset) throws IOException {
         TopicStorage storage = topicStorageMap.get(topic);
-        if (storage == null) return null; // Topic doesn't exist
+        if (storage == null) return null;
 
-        // 1. Find which segment contains this offset
+        // 1. FIND THE BOOK: Search through segments to find which one contains this ID
         SegmentPair segment = storage.findSegmentForOffset(offset);
-        if (segment == null) return null; // Offset is too old or doesn't exist
+        if (segment == null) return null;
 
-        // Calculate relative offset
         long relativeOffset = offset - segment.startOffset;
 
-        // --- THE READ WORKFLOW ---
-        // A. Ask the Index for the GPS Coordinates and Length
+        // 2. FIND THE BOOKMARK: Ask the index where the data is
         IndexSegment.IndexData indexData = segment.indexSegment.getIndexData(relativeOffset);
-        if (indexData == null) return null; // Message not written yet
+        if (indexData == null) return null;
 
-        // B. Ask the Log for the actual bytes using the exact Position and Length
+        // 3. GET THE DATA: Go to the Log at that exact "GPS Coordinate" and length
         return segment.logSegment.read(indexData.physicalPosition, indexData.messageLength);
     }
-
-    // ====================================================================================
-    // HELPER CLASSES AND METHODS
-    // ====================================================================================
 
     private TopicStorage createTopicStorage(String topic) {
         try {
@@ -108,10 +94,10 @@ public class StorageManagerImpl {
     }
 
     /**
-     * Groups a LogSegment and an IndexSegment together.
+     * Inner Class: Groups a Log and Index together as a single logical unit.
      */
     private static class SegmentPair {
-        long startOffset; // The global message ID this segment starts with
+        long startOffset; // What ID did this file start with? (e.g. 1000)
         LogSegment logSegment;
         IndexSegment indexSegment;
 
@@ -122,7 +108,7 @@ public class StorageManagerImpl {
     }
 
     /**
-     * Manages all the segments for a single topic.
+     * Inner Class: Manages the collection of "Books" (Segments) for a specific Topic.
      */
     private static class TopicStorage {
         final String topicDir;
@@ -133,20 +119,16 @@ public class StorageManagerImpl {
             this.topicDir = rootDir + topic + "/";
             File dir = new File(this.topicDir);
             if (!dir.exists()) dir.mkdirs();
-
-            // Start with a fresh segment
-            createNewSegment();
+            createNewSegment(); // Create the very first book for this topic
         }
 
         public SegmentPair getActiveSegment() {
-            return segments.get(segments.size() - 1); // The last segment is the active one
+            return segments.get(segments.size() - 1);
         }
 
         public SegmentPair createNewSegment() throws IOException {
             long newStartOffset = globalOffsetCounter.get();
-
-            // File names are usually padded with zeros to represent their starting offset
-            // e.g., "00000000000000001000.log"
+            // Name the file after its start ID (e.g., 00000000000000001000.log)
             String baseName = topicDir + String.format("%020d", newStartOffset);
 
             SegmentPair pair = new SegmentPair();
@@ -159,13 +141,13 @@ public class StorageManagerImpl {
         }
 
         public SegmentPair findSegmentForOffset(long offset) {
-            // Simple linear search. (In a real system with thousands of segments, use Binary Search)
+            // Searches backwards from the newest book to the oldest
             for (int i = segments.size() - 1; i >= 0; i--) {
                 if (offset >= segments.get(i).startOffset) {
                     return segments.get(i);
                 }
             }
-            return null; // Offset is smaller than our oldest segment (perhaps it was deleted)
+            return null;
         }
     }
 }
