@@ -1,96 +1,59 @@
-distributed-queue/
-├── pom.xml
-└── src/
-└── main/
-└── java/
-└── com/
-└── shopee/
-└── queue/
+distributed-pubsub-mq/
+├── pom.xml                          # Maven dependencies (e.g., Netty for network, logging libraries)
+└── src/main/java/com/shopee/mq/
+├── BrokerMain.java              # THE ASSEMBLER. The only file that knows about all packages.
+│                                # It reads the config, instantiates the Impl classes, injects
+│                                # them into each other via the API interfaces, and starts the server.
 │
-├── BrokerMain.java             
-│   # ROLE: The Entry Point.
-│   # WHAT IT DOES: The `public static void main` method. It wires everything together.
-│   # RELATIONSHIPS: Instantiates the `QueueManager`, starts the `TcpServer`, and bootstraps the `RaftNode`.
+├── common/                      # SHARED RESOURCES (Everyone uses this)
+│   ├── config/BrokerConfig.java # Holds constants: Ports, Max File Sizes (e.g., 1GB), timeouts.
+│   └── exceptions/BrokerEx.java # Custom runtime exceptions so the server doesn't crash silently.
 │
-├── config/                     
-│   └── BrokerConfig.java
-│       # ROLE: Global Configuration (Single Source of Truth).
-│       # WHAT IT DOES: Holds constants like MAX_SEGMENT_SIZE (100MB), PORT (9092), and DATA_DIR.
-│       # RELATIONSHIPS: Read by `StorageManager`, `TcpServer`, and `QueueManager`. No hardcoded magic numbers in the logic!
+├── api/                         # THE CONTRACTS (Team designs this together on Day 1)
+│   │                            # RULE: No logic goes here. Only interface definitions.
+│   ├── IQueueManager.java       # Defines: createTopic(), pushMessage(), pullMessage()
+│   ├── IStorageManager.java     # Defines: appendToLog(), readFromOffset()
+│   ├── IClusterNode.java        # Defines: requestVote(), replicateData(), getLeader()
+│   └── IServer.java             # Defines: startServer(), stopServer()
 │
-├── exceptions/                 
-│   └── BrokerException.java
-│       # ROLE: Standardized Error Handling.
-│       # WHAT IT DOES: A custom RuntimeException wrapper.
-│       # RELATIONSHIPS: Thrown by `StorageManager` (e.g., Disk Full) or `ClientHandler` (Malformed Packet). Caught by `TcpServer` to return a clean error to the client instead of crashing the broker.
+├── core/                        # PERSON 3: THE TRAFFIC COP (Business Logic)
+│   │                            # Goal: Route incoming traffic to the correct disk files.
+│   ├── QueueManagerImpl.java    # Implements IQueueManager. Holds a Map<String, MessageQueue>.
+│   │                            # When a packet arrives, it finds the right queue and passes it down.
+│   ├── MessageQueue.java        # Represents a specific Topic (e.g., "Payments"). It validates
+│   │                            # the message and tells the IStorageManager to save it.
+│   └── ConsumerOffsetManager.java # The Tracker. Saves a small file to disk tracking that
+│                                # "PaymentServiceGroup" has read up to offset #50,000.
 │
-├── protocol/                   
-│   └── MessagePacket.java      
-│       # ROLE: The Data Transfer Object (DTO).
-│       # WHAT IT DOES: Represents a single unit of work (e.g., a Shopee order). Knows how to serialize itself to bytes and deserialize from bytes.
-│       # RELATIONSHIPS: Passed around by EVERY component. Created by `ClientHandler`, stored by `LogSegment`, pulled by `Replicator`.
+├── storage/                     # PERSON 2: THE MUSCLE (Disk I/O)
+│   │                            # Goal: Never drop a message, write to disk at blazing speeds.
+│   ├── StorageManagerImpl.java  # Implements IStorageManager. Manages the lifecycle of files.
+│   │                            # If a log file hits 1GB, this class freezes it and creates a new one.
+│   ├── LogSegment.java          # THE QUEUE. Uses Java NIO (`FileChannel`) to do sequential
+│   │                            # "Append-Only" writes to the hard drive. Bypasses normal Java
+│   │                            # memory and writes straight to the OS Page Cache.
+│   └── IndexSegment.java        # THE LOOKUP. Uses memory-mapped files (`MappedByteBuffer`).
+│                                # Maps Offset #50,000 -> Byte Position 1,024,560 instantly.
 │
-├── core/                       
-│   ├── QueueManager.java       
-│   │   # ROLE: The Traffic Cop (Singleton).
-│   │   # WHAT IT DOES: Holds a Thread-Safe map of all active queues (e.g., Map<"shopee-orders", MessageQueue>). Creates new queues on the fly.
-│   │   # RELATIONSHIPS: `ClientHandler` asks this class: "Give me the queue named X".
-│   │
-│   ├── MessageQueue.java       
-│   │   # ROLE: The Logical Queue.
-│   │   # WHAT IT DOES: Represents one specific topic. Assigns the auto-incrementing Offset ID to incoming messages.
-│   │   # RELATIONSHIPS: Owned by `QueueManager`. Wraps and delegates actual saving to `StorageManager`.
-│   │
-│   └── ConsumerOffsetManager.java
-│       # ROLE: The Crash-Recovery Tracker.
-│       # WHAT IT DOES: Remembers that "Consumer Group A is currently at offset #500 for shopee-orders". Persists this to a system file.
-│       # RELATIONSHIPS: Updated by `ClientHandler` when an ACK packet arrives. Read by `ClientHandler` when a consumer reconnects.
+├── network/                     # PERSON 1: THE FRONT DOOR (TCP & Serialization)
+│   │                            # Goal: Handle 10,000+ simultaneous connections without crashing.
+│   ├── TcpServerImpl.java       # Implements IServer. Uses Java NIO `ServerSocketChannel` (or Netty).
+│   │                            # Listens for connections and delegates them to a thread pool.
+│   ├── ClientHandler.java       # Translates raw TCP byte streams into `MessagePacket` objects.
+│   │                            # Routes the packet to the `IQueueManager` (Person 3's code).
+│   └── protocol/MessagePacket.java # The DTO. Knows how to serialize its fields (Topic, Payload,
+│                                # Timestamp) into a raw `byte[]` for network and disk storage.
 │
-├── storage/                    
-│   ├── StorageManager.java     
-│   │   # ROLE: The Disk Controller.
-│   │   # WHAT IT DOES: Prevents files from growing infinitely. When a log file hits 100MB, it "rolls over" and creates a new one seamlessly.
-│   │   # RELATIONSHIPS: Owned by `MessageQueue`. Manages multiple `LogSegment` and `IndexSegment` objects.
-│   │
-│   ├── LogSegment.java         
-│   │   # ROLE: The Muscle (Append-Only Log).
-│   │   # WHAT IT DOES: Uses Java NIO to sequentially write raw `MessagePacket` bytes to the physical hard drive.
-│   │   # RELATIONSHIPS: Called exclusively by `StorageManager`.
-│   │
-│   └── IndexSegment.java       
-│       # ROLE: The Speed Engine (Memory-Mapped File).
-│       # WHAT IT DOES: Maps logical offsets (ID #500) to physical byte locations (Byte 4,096) for O(1) instant read lookups.
-│       # RELATIONSHIPS: Called exclusively by `StorageManager`.
+├── cluster/                     # PERSON 4: THE BRAINS (High Availability)
+│   │                            # Goal: If someone unplugs Broker 1, Broker 2 takes over instantly.
+│   ├── RaftNodeImpl.java        # Implements IClusterNode. Sends heartbeats to other brokers.
+│   │                            # If the Leader dies, it initiates a vote to elect a new Leader.
+│   └── Replicator.java          # The Copier. Acts as a TCP client inside the broker. It asks the
+│                                # Leader's IStorageManager for new bytes and saves them locally.
 │
-├── network/                    
-│   ├── TcpServer.java          
-│   │   # ROLE: The Front Door.
-│   │   # WHAT IT DOES: Listens on a port (e.g., 9092). Accepts incoming TCP connections from Producers and Consumers.
-│   │   # RELATIONSHIPS: When a connection arrives, it spawns a `ClientHandler` thread and hands the socket to it.
-│   │
-│   └── ClientHandler.java      
-│       # ROLE: The Translator & Router.
-│       # WHAT IT DOES: Reads raw bytes from the network, converts them into a `MessagePacket`. If it's a Publish request, it routes it to the `QueueManager`. If it's a Consume request, it reads from the queue and flushes bytes back to the client.
-│       # RELATIONSHIPS: Bridges `TcpServer` with `QueueManager` and `ConsumerOffsetManager`.
-│
-├── cluster/                    
-│   ├── RaftNode.java           
-│   │   # ROLE: The Consensus Brain (High Availability).
-│   │   # WHAT IT DOES: Pings other brokers. Holds elections. Decides if *this* broker is the Leader or a Follower for a specific queue.
-│   │   # RELATIONSHIPS: Blocks the `QueueManager` from accepting writes if this broker is not the Leader.
-│   │
-│   └── Replicator.java         
-│       # ROLE: The Data Copier.
-│       # WHAT IT DOES: If this broker is the Leader, this class tails the `LogSegment` and forwards newly appended bytes to Follower brokers via internal TCP sockets.
-│       # RELATIONSHIPS: Reads from `StorageManager`, sends data to other nodes' `TcpServer`.
-│
-└── client/                     
-├── Producer.java
-│   # ROLE: The External Writer API.
-│   # WHAT IT DOES: A library for the Shopee Web Server to use. Batches orders together and sends them over TCP to the Broker.
-│   # RELATIONSHIPS: Talks to the Broker's `TcpServer`.
-│
-└── Consumer.java
-# ROLE: The External Reader API.
-# WHAT IT DOES: A library for the Shopee Payment Server. Polls the broker for new messages and sends back Acknowledgments (ACKs) when done.
-# RELATIONSHIPS: Talks to the Broker's `TcpServer`.
+└── client/                      # PERSON 1: THE EXTERNAL SDKs
+│                            # Goal: Make it easy for other apps to talk to your Broker.
+├── Producer.java            # Used by Shopee Web App. Has a simple method: `send(topic, data)`.
+│                            # Under the hood, it connects via TCP and formats the MessagePacket.
+└── Consumer.java            # Used by Shopee Payment App. Has a method: `poll()`.
+# Connects via TCP, fetches unread messages, and sends an ACK back.
