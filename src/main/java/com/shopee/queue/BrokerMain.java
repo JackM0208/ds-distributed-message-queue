@@ -66,7 +66,11 @@ public class BrokerMain {
         logger.info("Starting Distributed Message Queue Broker...");
         // 1. Initialize Storage (e.g., recover segments from disk)
         // 2. Start Cluster Node (e.g., join Raft group)
+        
         // 3. Start Server (e.g., bind port 8888)
+        if (server != null) {
+            server.startServer();
+        }
     }
 
     /**
@@ -75,10 +79,25 @@ public class BrokerMain {
     public void shutdown() {
         logger.info("Shutting down Distributed Message Queue Broker...");
         // Order matters: Stop accepting requests -> finish pending tasks -> flush data -> stop cluster
+        if (server != null) {
+            server.stopServer();
+        }
     }
 
     public static void main(String[] args) {
-        // Implementation of instantiation and start-up goes here.
-        // This will involve creating the Impl classes and wiring them.
+        // Instantiate implementations
+        com.shopee.queue.network.TcpServerImpl server = new com.shopee.queue.network.TcpServerImpl();
+        com.shopee.queue.core.QueueManagerImpl queueManager = new com.shopee.queue.core.QueueManagerImpl();
+        com.shopee.queue.storage.StorageManagerImpl storageManager = new com.shopee.queue.storage.StorageManagerImpl();
+        com.shopee.queue.cluster.RaftNodeImpl clusterNode = new com.shopee.queue.cluster.RaftNodeImpl();
+
+        // Assemble the Broker
+        BrokerMain broker = new BrokerMain(server, queueManager, storageManager, clusterNode);
+
+        // Add shutdown hook for graceful exit
+        Runtime.getRuntime().addShutdownHook(new Thread(broker::shutdown));
+
+        // Start the engine
+        broker.start();
     }
 }
