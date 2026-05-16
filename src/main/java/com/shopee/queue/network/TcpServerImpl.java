@@ -1,5 +1,6 @@
 package com.shopee.queue.network;
 
+import com.shopee.queue.api.IQueueManager;
 import com.shopee.queue.api.IServer;
 import com.shopee.queue.common.config.BrokerConfig;
 import org.slf4j.Logger;
@@ -20,6 +21,12 @@ public class TcpServerImpl implements IServer {
     private ServerSocket serverSocket;
     private boolean running = false;
     private Thread listenerThread;
+    private final IQueueManager queueManager; // ADD THIS
+
+    // ADD THIS CONSTRUCTOR
+    public TcpServerImpl(IQueueManager queueManager) {
+        this.queueManager = queueManager;
+    }
 
     @Override
     public void startServer() {
@@ -37,7 +44,7 @@ public class TcpServerImpl implements IServer {
                         logger.info("New connection established from {}", clientSocket.getRemoteSocketAddress());
                         
                         // Hand over the socket to a ClientHandler
-                        ClientHandler handler = new ClientHandler(clientSocket);
+                        ClientHandler handler = new ClientHandler(clientSocket, queueManager);
                         new Thread(handler).start();
                         
                     } catch (IOException e) {

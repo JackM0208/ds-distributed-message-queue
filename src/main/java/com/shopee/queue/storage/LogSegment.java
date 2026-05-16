@@ -67,4 +67,6 @@ public class LogSegment {
     public long getCurrentPosition() {
         return this.currentPosition;
     }
+
+
 }

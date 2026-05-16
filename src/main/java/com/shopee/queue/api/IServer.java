@@ -2,20 +2,20 @@ package com.shopee.queue.api;
 
 /**
  * Interface representing the network server.
- * Utilizes Java NIO (New I/O) to handle many concurrent connections efficiently. 
- * Unlike standard blocking I/O which uses one thread per connection, NIO's 
- * non-blocking selectors allow a single thread to monitor multiple channels 
- * for incoming events, leading to a highly scalable, event-driven design.
+ * Defines the contract for accepting incoming connections from Producers and Consumers.
+ * Implementations manage the lifecycle of the socket binding, thread management
+ * for client handling, and graceful shutdown procedures.
  */
 public interface IServer {
 
     /**
-     * Starts the network server and begins listening for incoming messages.
+     * Starts the network server and begins listening for incoming connections.
      */
     void startServer();
 
     /**
-     * Gracefully shuts down the network server and releases resources.
+     * Gracefully shuts down the network server, closes all active client
+     * connections, and releases port bindings.
      */
     void stopServer();
 }

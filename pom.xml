@@ -63,13 +63,13 @@
             <scope>test</scope>
         </dependency>
 
-        <!-- Lombok for cleaner DTOs (optional but recommended for skeletons) -->
-        <dependency>
-            <groupId>org.projectlombok</groupId>
-            <artifactId>lombok</artifactId>
-            <version>1.18.30</version>
-            <scope>provided</scope>
-        </dependency>
+<!--        &lt;!&ndash; Lombok for cleaner DTOs (optional but recommended for skeletons) &ndash;&gt;-->
+<!--        <dependency>-->
+<!--            <groupId>org.projectlombok</groupId>-->
+<!--            <artifactId>lombok</artifactId>-->
+<!--            <version>1.18.30</version>-->
+<!--            <scope>provided</scope>-->
+<!--        </dependency>-->
     </dependencies>
 
     <build>

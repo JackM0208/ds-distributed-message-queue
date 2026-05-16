@@ -1,29 +1,48 @@
 package com.shopee.queue.core;
 
-/**
- * Tracks and manages consumer progress within the system.
- * Keeps a record of the last consumed message offset for each consumer group.
- */
-public class ConsumerOffsetManager {
+import java.io.*;
+import java.util.Properties;
+import java.util.concurrent.ConcurrentHashMap;
 
-    /**
-     * Updates the saved offset for a given consumer and topic.
-     * @param consumerId ID of the consumer.
-     * @param topicName Name of the topic.
-     * @param offset Last read offset position.
-     */
-    public void commitOffset(String consumerId, String topicName, long offset) {
-        // Offset commit logic
+public class ConsumerOffsetManager {
+    private final ConcurrentHashMap<String, Long> offsetMap = new ConcurrentHashMap<>();
+    private final File offsetFile = new File("data/offsets.properties");
+
+    public ConsumerOffsetManager() {
+        loadFromDisk();
     }
 
-    /**
-     * Retrieves the last saved offset for a given consumer and topic.
-     * @param consumerId ID of the consumer.
-     * @param topicName Name of the topic.
-     * @return long last consumed offset.
-     */
+    public void commitOffset(String consumerId, String topicName, long offset) {
+        String key = consumerId + "-" + topicName;
+        offsetMap.put(key, offset);
+        saveToDisk(); // In production, do this asynchronously in a background thread
+    }
+
     public long getOffset(String consumerId, String topicName) {
-        // Offset retrieval logic
-        return 0L;
+        String key = consumerId + "-" + topicName;
+        return offsetMap.getOrDefault(key, 0L);
+    }
+
+    private synchronized void saveToDisk() {
+        Properties props = new Properties();
+        offsetMap.forEach((k, v) -> props.setProperty(k, String.valueOf(v)));
+        try (FileOutputStream out = new FileOutputStream(offsetFile)) {
+            props.store(out, "Consumer Offsets");
+        } catch (IOException e) {
+            e.printStackTrace();
+        }
+    }
+
+    private void loadFromDisk() {
+        if (!offsetFile.exists()) return;
+        try (FileInputStream in = new FileInputStream(offsetFile)) {
+            Properties props = new Properties();
+            props.load(in);
+            for (String key : props.stringPropertyNames()) {
+                offsetMap.put(key, Long.parseLong(props.getProperty(key)));
+            }
+        } catch (IOException e) {
+            e.printStackTrace();
+        }
     }
 }

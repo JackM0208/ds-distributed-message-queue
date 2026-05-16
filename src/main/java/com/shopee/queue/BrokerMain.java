@@ -4,6 +4,10 @@ import com.shopee.queue.api.IServer;
 import com.shopee.queue.api.IQueueManager;
 import com.shopee.queue.api.IStorageManager;
 import com.shopee.queue.api.IClusterNode;
+import com.shopee.queue.cluster.RaftNodeImpl;
+import com.shopee.queue.core.QueueManagerImpl;
+import com.shopee.queue.network.TcpServerImpl;
+import com.shopee.queue.storage.StorageManagerImpl;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -78,26 +82,41 @@ public class BrokerMain {
      */
     public void shutdown() {
         logger.info("Shutting down Distributed Message Queue Broker...");
-        // Order matters: Stop accepting requests -> finish pending tasks -> flush data -> stop cluster
+
+        // 1. Stop accepting network requests
         if (server != null) {
             server.stopServer();
         }
+
+        // 2. Flush and seal all disk files
+        if (storageManager != null) {
+            storageManager.shutdown();
+        }
+
+        logger.info("Shutdown complete.");
     }
 
     public static void main(String[] args) {
-        // Instantiate implementations
-        com.shopee.queue.network.TcpServerImpl server = new com.shopee.queue.network.TcpServerImpl();
-        com.shopee.queue.core.QueueManagerImpl queueManager = new com.shopee.queue.core.QueueManagerImpl();
-        com.shopee.queue.storage.StorageManagerImpl storageManager = new com.shopee.queue.storage.StorageManagerImpl();
-        com.shopee.queue.cluster.RaftNodeImpl clusterNode = new com.shopee.queue.cluster.RaftNodeImpl();
+        // 1. Bottom Layer: Storage (No dependencies)
+        StorageManagerImpl storageManager = new StorageManagerImpl();
 
-        // Assemble the Broker
+        // 2. Middle Layer: Queue Manager (Depends on Storage)
+        QueueManagerImpl queueManager =
+                new com.shopee.queue.core.QueueManagerImpl(storageManager);
+
+        // 3. Top Layer: Network Server (Depends on Queue Manager)
+        TcpServerImpl server =
+                new com.shopee.queue.network.TcpServerImpl(queueManager);
+
+        // 4. Cluster Node (Placeholder for now)
+        RaftNodeImpl clusterNode =
+                new com.shopee.queue.cluster.RaftNodeImpl();
+
+        // Assemble and Start
         BrokerMain broker = new BrokerMain(server, queueManager, storageManager, clusterNode);
-
-        // Add shutdown hook for graceful exit
         Runtime.getRuntime().addShutdownHook(new Thread(broker::shutdown));
-
-        // Start the engine
         broker.start();
     }
+
+
 }
