@@ -102,15 +102,15 @@ public class BrokerMain {
 
         // 2. Middle Layer: Queue Manager (Depends on Storage)
         QueueManagerImpl queueManager =
-                new com.shopee.queue.core.QueueManagerImpl(storageManager);
+                new QueueManagerImpl(storageManager);
 
         // 3. Top Layer: Network Server (Depends on Queue Manager)
         TcpServerImpl server =
-                new com.shopee.queue.network.TcpServerImpl(queueManager);
+                new TcpServerImpl(queueManager);
 
         // 4. Cluster Node (Placeholder for now)
         RaftNodeImpl clusterNode =
-                new com.shopee.queue.cluster.RaftNodeImpl();
+                new RaftNodeImpl();
 
         // Assemble and Start
         BrokerMain broker = new BrokerMain(server, queueManager, storageManager, clusterNode);
