@@ -22,4 +22,11 @@ public interface IStorageManager {
      * @return Byte array containing the message data.
      */
     byte[] readFromOffset(String topicName, long offset);
+
+    /**
+     * Forces all pending data to be written to the physical storage device.
+     * @param topicName Name of the topic to flush.
+     */
+    void flush(String topicName);
 }
+

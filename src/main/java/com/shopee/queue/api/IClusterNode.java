@@ -9,16 +9,19 @@ package com.shopee.queue.api;
  */
 public interface IClusterNode {
 
-    /**
-     * Request a vote from another node in the cluster during leader election.
-     * @return boolean True if the vote is granted.
-     */
     boolean requestVote();
 
-    /**
-     * Replicates log entries to other nodes in the cluster.
-     */
     void replicateData();
+
+    /**
+     * Xử lý yêu cầu bầu cử từ Node khác.
+     */
+    boolean handleVoteRequest(long term, String candidateId);
+
+    /**
+     * Xử lý gói tin nhân bản dữ liệu hoặc Heartbeat từ Leader.
+     */
+    void handleAppendEntries(long term, String leaderId, byte[] data);
 
     /**
      * Identifies the current leader of the cluster.
@@ -26,3 +29,5 @@ public interface IClusterNode {
      */
     String getLeader();
 }
+
+

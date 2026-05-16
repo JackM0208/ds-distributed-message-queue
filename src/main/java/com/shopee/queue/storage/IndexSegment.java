@@ -58,15 +58,20 @@ public class IndexSegment {
      * UPDATE 3: Added the messageLength parameter.
      * Writes a new mapping (Message Offset -> Log Physical Position + Length).
      */
+    /**
+     * Ghi một mục chỉ mục mới (Message Offset -> Log Position + Length).
+     * Sử dụng MappedByteBuffer giúp việc ghi vào file nhanh như ghi vào RAM (Zero-copy).
+     */
     public synchronized void addEntry(long messageOffset, long physicalPosition, int messageLength) {
-        // We now write exactly 20 bytes:
-        this.mappedByteBuffer.putLong(messageOffset);     // 8 bytes
-        this.mappedByteBuffer.putLong(physicalPosition);  // 8 bytes
-        this.mappedByteBuffer.putInt(messageLength);      // 4 bytes (an integer is 4 bytes)
-
-        // Increment the write tracker by 20
+        // Mỗi entry chiếm đúng 20 bytes (8 + 8 + 4)
+        this.mappedByteBuffer.putLong(messageOffset);     // ID tin nhắn
+        this.mappedByteBuffer.putLong(physicalPosition);  // Vị trí byte trong file log
+        this.mappedByteBuffer.putInt(messageLength);      // Độ dài tin nhắn
+ 
+        // Dịch chuyển con trỏ ghi đi 20 bytes
         this.writePosition += ENTRY_SIZE;
     }
+
 
     /**
      * UPDATE 4: Retrieves both the position and the length.

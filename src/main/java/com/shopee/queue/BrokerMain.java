@@ -64,9 +64,9 @@ public class BrokerMain {
      */
     public void start() {
         logger.info("Starting Distributed Message Queue Broker...");
-        // 1. Initialize Storage (e.g., recover segments from disk)
-        // 2. Start Cluster Node (e.g., join Raft group)
-        // 3. Start Server (e.g., bind port 8888)
+        if (server != null) {
+            server.startServer();
+        }
     }
 
     /**
@@ -74,11 +74,41 @@ public class BrokerMain {
      */
     public void shutdown() {
         logger.info("Shutting down Distributed Message Queue Broker...");
-        // Order matters: Stop accepting requests -> finish pending tasks -> flush data -> stop cluster
+        if (server != null) {
+            server.stopServer();
+        }
+        if (storageManager != null) {
+            try {
+                storageManager.close();
+            } catch (Exception e) {
+                logger.error("Error closing storage manager: {}", e.getMessage());
+            }
+        }
     }
 
+
     public static void main(String[] args) {
-        // Implementation of instantiation and start-up goes here.
-        // This will involve creating the Impl classes and wiring them.
+        int port = (args.length > 0) ? Integer.parseInt(args[0]) : 8888;
+        
+        // Instantiate implementations
+        com.shopee.queue.storage.StorageManagerImpl storageManager = new com.shopee.queue.storage.StorageManagerImpl();
+        com.shopee.queue.core.QueueManagerImpl queueManager = new com.shopee.queue.core.QueueManagerImpl(storageManager);
+        com.shopee.queue.core.ConsumerOffsetManager offsetManager = new com.shopee.queue.core.ConsumerOffsetManager();
+        com.shopee.queue.cluster.RaftNodeImpl clusterNode = new com.shopee.queue.cluster.RaftNodeImpl();
+        com.shopee.queue.network.TcpServerImpl server = new com.shopee.queue.network.TcpServerImpl(queueManager, offsetManager, clusterNode, port);
+
+        // Assemble the Broker
+        BrokerMain broker = new BrokerMain(server, queueManager, storageManager, clusterNode);
+
+
+
+
+
+        // Add shutdown hook for graceful exit
+        Runtime.getRuntime().addShutdownHook(new Thread(broker::shutdown));
+
+        // Start the engine
+        broker.start();
     }
 }
+

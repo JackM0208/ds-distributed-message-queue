@@ -31,17 +31,26 @@ public class LogSegment {
         this.fileChannel.position(this.currentPosition);
     }
 
+    /**
+     * Ghi dữ liệu vào cuối file log.
+     * Cơ chế Append-only giúp tận dụng tối đa tốc độ ghi tuần tự (Sequential Write) của ổ cứng.
+     * 
+     * @param data Mảng bytes tin nhắn cần ghi
+     * @return Vị trí vật lý (vị trí byte) bắt đầu ghi trong file
+     */
     public synchronized long append(byte[] data) throws IOException {
         long writePosition = this.currentPosition;
 
         ByteBuffer byteBuffer = ByteBuffer.wrap(data);
 
+        // Ghi dữ liệu từ buffer vào FileChannel
         while (byteBuffer.hasRemaining()) {
             fileChannel.write(byteBuffer);
         }
         this.currentPosition += data.length;
         return writePosition;
     }
+
 
     public byte[] read(long position, int length) throws IOException {
         ByteBuffer byteBuffer = ByteBuffer.allocate(length);
@@ -56,6 +65,7 @@ public class LogSegment {
      * Closes the file resources gracefully when the Broker shuts down or the file gets too big.
      */
     public void close() throws IOException {
+        flush(); // Flush before closing
         if (fileChannel != null) {
             fileChannel.close();
         }
@@ -63,6 +73,16 @@ public class LogSegment {
             randomAccessFile.close();
         }
     }
+
+    /**
+     * Forces all buffered output bytes to be written to the underlying device.
+     */
+    public void flush() throws IOException {
+        if (fileChannel != null && fileChannel.isOpen()) {
+            fileChannel.force(true);
+        }
+    }
+
 
     public long getCurrentPosition() {
         return this.currentPosition;

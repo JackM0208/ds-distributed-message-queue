@@ -6,6 +6,7 @@ package com.shopee.queue.common.config;
  */
 public final class BrokerConfig {
     public static final int DEFAULT_PORT = 8888;
+    public static final String[] CLUSTER_NODES = {"localhost:8888", "localhost:8889", "localhost:8890"};
     public static final long MAX_FILE_SIZE = 1024L * 1024 * 1024; // 1GB
     public static final int REQUEST_TIMEOUT_MS = 30000; // 30s
 

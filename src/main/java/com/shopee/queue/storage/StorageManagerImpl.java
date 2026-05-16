@@ -8,12 +8,17 @@ import java.util.Map;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.atomic.AtomicLong;
 
+import java.util.concurrent.Executors;
+import java.util.concurrent.ScheduledExecutorService;
+import java.util.concurrent.TimeUnit;
+import com.shopee.queue.api.IStorageManager;
+
 /**
  * The Orchestrator for the Storage Layer.
  * Manages directories, segment rotation, and routes read/write requests
  * to the correct Log and Index segments for each topic.
  */
-public class StorageManagerImpl {
+public class StorageManagerImpl implements IStorageManager {
 
     // The root directory where all data is stored
     private final String rootDirectory = "data/";
@@ -29,7 +34,16 @@ public class StorageManagerImpl {
         if (!rootDir.exists()) {
             rootDir.mkdirs();
         }
-        // In a real system, we would scan the folders here to reload existing files after a crash.
+        startBackgroundFlush();
+    }
+
+    private void startBackgroundFlush() {
+        ScheduledExecutorService scheduler = Executors.newSingleThreadScheduledExecutor();
+        scheduler.scheduleAtFixedRate(() -> {
+            for (String topic : topicStorageMap.keySet()) {
+                flush(topic);
+            }
+        }, 500, 500, TimeUnit.MILLISECONDS);
     }
 
     /**
@@ -94,6 +108,33 @@ public class StorageManagerImpl {
         // B. Ask the Log for the actual bytes using the exact Position and Length
         return segment.logSegment.read(indexData.physicalPosition, indexData.messageLength);
     }
+
+    @Override
+    public void flush(String topic) {
+        TopicStorage storage = topicStorageMap.get(topic);
+        if (storage != null) {
+            try {
+                storage.getActiveSegment().logSegment.flush();
+            } catch (IOException e) {
+                // Use a proper logger in a real system
+                System.err.println("Failed to flush topic: " + topic);
+            }
+        }
+    }
+
+    /**
+     * Gracefully closes all segments and releases file locks.
+     */
+    public void close() throws IOException {
+        for (TopicStorage storage : topicStorageMap.values()) {
+            synchronized (storage) {
+                for (SegmentPair segment : storage.segments) {
+                    segment.close();
+                }
+            }
+        }
+    }
+
 
     // ====================================================================================
     // HELPER CLASSES AND METHODS
