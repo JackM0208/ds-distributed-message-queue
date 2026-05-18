@@ -1,5 +1,7 @@
 package com.shopee.queue.storage;
 
+import com.shopee.queue.api.IStorageManager;
+
 import java.io.File;
 import java.io.IOException;
 import java.util.ArrayList;
@@ -13,7 +15,7 @@ import java.util.concurrent.atomic.AtomicLong;
  * Purpose: Acts as the entry point for all disk operations. It hides the complexity
  * of file management and segment rotation from the rest of the MQ system.
  */
-public class StorageManagerImpl {
+public class StorageManagerImpl implements IStorageManager {
 
     // The folder where everything is saved
     private final String rootDirectory = "data/";
@@ -119,7 +121,32 @@ public class StorageManagerImpl {
             this.topicDir = rootDir + topic + "/";
             File dir = new File(this.topicDir);
             if (!dir.exists()) dir.mkdirs();
-            createNewSegment(); // Create the very first book for this topic
+
+            // RECOVERY LOGIC: Scan existing files
+            File[] files = dir.listFiles((d, name) -> name.endsWith(".log"));
+            if (files != null && files.length > 0) {
+                java.util.Arrays.sort(files); // Sort alphabetically to get chronological order
+
+                for (File file : files) {
+                    String baseName = file.getAbsolutePath().replace(".log", "");
+                    String fileNameOnly = file.getName().replace(".log", "");
+                    long startOff = Long.parseLong(fileNameOnly); // Parse 0000001000 to 1000
+
+                    SegmentPair pair = new SegmentPair();
+                    pair.startOffset = startOff;
+                    pair.logSegment = new LogSegment(baseName + ".log");
+                    pair.indexSegment = new IndexSegment(baseName + ".index");
+                    segments.add(pair);
+                }
+
+                // Set counter to the END of the very last file
+                SegmentPair lastSegment = getActiveSegment();
+                long nextId = lastSegment.startOffset + lastSegment.indexSegment.getEntryCount();
+                globalOffsetCounter.set(nextId);
+            } else {
+                // Brand new topic
+                createNewSegment();
+            }
         }
 
         public SegmentPair getActiveSegment() {
@@ -149,5 +176,20 @@ public class StorageManagerImpl {
             }
             return null;
         }
+    }
+
+    @Override
+    public void shutdown() {
+        System.out.println("StorageManager: Flushing and closing all files...");
+        for (TopicStorage storage : topicStorageMap.values()) {
+            for (SegmentPair segment : storage.segments) {
+                try {
+                    segment.close();
+                } catch (IOException e) {
+                    System.err.println("Failed to close segment: " + e.getMessage());
+                }
+            }
+        }
+        System.out.println("StorageManager: All files closed safely.");
     }
 }

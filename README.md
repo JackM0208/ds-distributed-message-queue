@@ -22,7 +22,7 @@ The broker listens on port **8888** by default (configurable in `BrokerConfig.ja
 ### Run the Test Producer
 To verify connectivity, run the simple producer in another terminal:
 ```bash
-mvn exec:java -Dexec.mainClass="com.shopee.queue.client.SimpleProducer"
+mvn exec:java -Dexec.mainClass="com.shopee.queue.client.Producer"
 ```
 
 ## 📂 Network Protocol
