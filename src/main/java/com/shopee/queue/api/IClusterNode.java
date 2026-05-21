@@ -25,4 +25,8 @@ public interface IClusterNode {
      * @return String The unique ID of the current leader node.
      */
     String getLeader();
+
+    boolean handleVoteRequest(long term, String candidateId);
+    
+    void handleAppendEntries(long term, String leaderId, byte[] data);
 }

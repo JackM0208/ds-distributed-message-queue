@@ -31,4 +31,8 @@ public interface IQueueManager {
      */
 
     MessagePacket pullMessage(String topicName, long offset);
+
+    void commitOffset(String consumerId, String topicName, long offset);
+
+    long getOffsetForConsumer(String consumerId, String topicName);
 }

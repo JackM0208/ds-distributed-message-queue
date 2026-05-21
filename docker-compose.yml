@@ -1,0 +1,30 @@
+version: '3.8'
+
+services:
+  broker-1:
+    build: .
+    ports:
+      - "8888:8888"
+    volumes:
+      - ./data/node-1:/app/data # Lưu dữ liệu ra máy thật để không bị mất
+    command: ["8888"] # Truyền port vào hàm main
+
+  broker-2:
+    build: .
+    ports:
+      - "8889:8888"
+    volumes:
+      - ./data/node-2:/app/data
+    command: ["8888"]
+
+  broker-3:
+    build: .
+    ports:
+      - "8890:8888"
+    volumes:
+      - ./data/node-3:/app/data
+    command: ["8888"]
+
+networks:
+  default:
+    name: mq-network

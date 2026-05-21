@@ -15,10 +15,12 @@ public class QueueManagerImpl implements IQueueManager {
 
     private final IStorageManager storageManager;
     private final Map<String, MessageQueue> hotCacheMap;
+    private final ConsumerOffsetManager offsetManager;
 
-    public QueueManagerImpl(IStorageManager storageManager) {
+    public QueueManagerImpl(IStorageManager storageManager, ConsumerOffsetManager offsetManager) {
         this.storageManager = storageManager;
         this.hotCacheMap = new ConcurrentHashMap<>();
+        this.offsetManager = offsetManager;
     }
 
     @Override
@@ -68,5 +70,15 @@ public class QueueManagerImpl implements IQueueManager {
         } catch (Exception e) {
             throw new RuntimeException("Failed to read message from disk", e);
         }
+    }
+
+    @Override
+    public void commitOffset(String consumerId, String topicName, long offset){
+        this.offsetManager.commitOffset(consumerId, topicName, offset);
+    }
+
+    @Override
+    public long getOffsetForConsumer(String consumerId, String topicName){
+        return this.offsetManager.getOffset(consumerId, topicName);
     }
 }

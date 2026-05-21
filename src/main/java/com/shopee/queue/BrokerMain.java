@@ -5,6 +5,7 @@ import com.shopee.queue.api.IQueueManager;
 import com.shopee.queue.api.IStorageManager;
 import com.shopee.queue.api.IClusterNode;
 import com.shopee.queue.cluster.RaftNodeImpl;
+import com.shopee.queue.core.ConsumerOffsetManager;
 import com.shopee.queue.core.QueueManagerImpl;
 import com.shopee.queue.network.TcpServerImpl;
 import com.shopee.queue.storage.StorageManagerImpl;
@@ -97,24 +98,27 @@ public class BrokerMain {
     }
 
     public static void main(String[] args) {
+
+        int port = (args.length > 0) ? Integer.parseInt(args[0]) : 8888;
+
         // 1. Bottom Layer: Storage (No dependencies)
         StorageManagerImpl storageManager = new StorageManagerImpl();
+        ConsumerOffsetManager offsetManager = new ConsumerOffsetManager();
 
         // 2. Middle Layer: Queue Manager (Depends on Storage)
         QueueManagerImpl queueManager =
-                new QueueManagerImpl(storageManager);
+                new QueueManagerImpl(storageManager, offsetManager);
 
-        // 3. Top Layer: Network Server (Depends on Queue Manager)
-        TcpServerImpl server =
-                new TcpServerImpl(queueManager);
-
-        // 4. Cluster Node (Placeholder for now)
+        // 3. Cluster Node 
         RaftNodeImpl clusterNode =
-                new RaftNodeImpl();
+                new RaftNodeImpl(port);
+
+        // 4. Top Layer: Network Server 
+        TcpServerImpl server =
+                new TcpServerImpl(queueManager, clusterNode, port);
 
         // Assemble and Start
         BrokerMain broker = new BrokerMain(server, queueManager, storageManager, clusterNode);
-        Runtime.getRuntime().addShutdownHook(new Thread(broker::shutdown));
         broker.start();
     }
 

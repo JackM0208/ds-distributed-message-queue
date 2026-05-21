@@ -16,11 +16,17 @@ public class MessagePacket implements Serializable {
     private long messageId;
     private long timeCreated;
     private int type; 
+    private long term; 
+    private String senderId;
 
     /*
     type 0: Producer sends this, the payload is containing real data , asking to save data.
     type 1: Consumer sends this, the payload is probably empty, this is just for requesting data.
     type 2: Consumer sends this, it's an ACK.
+    type 3: Consumer sends this, request for the last read message using offset.
+    type 4: Raft Request Vote (Xin phiếu bầu)
+    type 5: Raft Vote Response (Trả lời bầu cử)
+    type 6: Raft AppendEntries (Heartbeat/Replication)
     */
 
     public MessagePacket(String topic, byte[] payload, long messageId, int type){
@@ -30,6 +36,12 @@ public class MessagePacket implements Serializable {
         this.type = type;
         this.timeCreated = System.currentTimeMillis();
     }
+
+    public long getTerm() { return term; }
+    public void setTerm(long term) { this.term = term; }
+    
+    public String getSenderId() { return senderId; }
+    public void setSenderId(String senderId) { this.senderId = senderId; }
 
     public String getTopic() { return topic; }
     public void setTopic(String topic) { this.topic = topic; }

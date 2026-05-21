@@ -33,6 +33,19 @@ public class StorageManagerImpl implements IStorageManager {
         if (!rootDir.exists()) {
             rootDir.mkdirs();
         }
+
+        File[] topics = rootDir.listFiles(File::isDirectory);
+        if (topics != null) {
+            for (File topicDir : topics) {
+                String topicName = topicDir.getName();
+                try {
+                    topicStorageMap.put(topicName, new TopicStorage(topicName, rootDirectory));
+                    System.out.println("[Storage] Recovered topic: " + topicName);
+                } catch (IOException e) {
+                    System.err.println("Failed to recover topic " + topicName);
+                }
+            }
+        }
     }
 
     /**

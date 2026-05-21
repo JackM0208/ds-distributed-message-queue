@@ -14,19 +14,63 @@ public class Consumer {
     private final String host;
     private final int port;
     private final String topic;
+
+    private final String consumerId;
     private long currentOffset;
 
-    public Consumer(String host, int port, String topic, long startOffset) {
+    public Consumer(String host, int port, String topic, String consumerId) {
         this.host = host;
         this.port = port;
         this.topic = topic;
-        this.currentOffset = startOffset;
+        this.consumerId = consumerId;
+
+        this.currentOffset = fetchInitialOffset();
     }
 
     /**
      * Connects to the broker and tries to pull a single message.
      * @return The MessagePacket received, or null if no new data exists.
      */
+
+    private long fetchInitialOffset(){
+        try(
+            Socket socket = new Socket(host, port);
+            ObjectOutputStream out = new ObjectOutputStream(socket.getOutputStream());
+            ObjectInputStream in = new ObjectInputStream(socket.getInputStream());
+        ) {
+            MessagePacket request = new MessagePacket(topic, consumerId.getBytes(StandardCharsets.UTF_8), 0, 3);
+            out.writeObject(request);
+            out.flush();
+
+            Object response = in.readObject();
+            if (response instanceof MessagePacket){
+                MessagePacket received = (MessagePacket) response;
+                System.out.println("[Consumer] Fetched saved offset from Broker: " + received.getMessageId());
+                return received.getMessageId();
+            }
+        }
+        catch (Exception e){
+            System.err.println("[Consumer] Failed to fetch initial offset. Defaulting to 0. Error: " + e.getMessage());
+        }
+        return 0;
+    }
+
+    private void commitOffset(long processedOffset){
+        try(
+            Socket socket = new Socket(host, port);
+            ObjectOutputStream out = new ObjectOutputStream(socket.getOutputStream());
+            ObjectInputStream in = new ObjectInputStream(socket.getInputStream()))
+        {
+            MessagePacket request = new MessagePacket(topic, consumerId.getBytes(StandardCharsets.UTF_8), processedOffset, 2);
+            out.writeObject(request);
+            out.flush();
+            System.out.println("[Consumer] Committed offset: " + processedOffset);
+            
+        } catch (Exception e){
+            System.err.println("[Consumer] Failed to commit offset: " + e.getMessage());
+        }
+    }
+    
     public MessagePacket poll() {
         try (Socket socket = new Socket(host, port);
              ObjectOutputStream out = new ObjectOutputStream(socket.getOutputStream());
@@ -79,12 +123,14 @@ public class Consumer {
                 // Move to the next message ID
                 currentOffset = packet.getMessageId() + 1;
 
+                commitOffset(currentOffset);
+
             } else {
                 // EMPTY: No more messages for now.
                 // We sleep for a bit so we don't spam the network.
                 try {
                     System.out.println("[Consumer] Queue empty. Waiting for new messages...");
-                    Thread.sleep(2000); // Wait 2 seconds
+                    Thread.sleep(5000); // Wait 2 seconds
                 } catch (InterruptedException e) {
                     break;
                 }
@@ -94,7 +140,7 @@ public class Consumer {
 
     public static void main(String[] args) {
         // Start consumer for "flash_sale_orders" starting at message 0
-        Consumer consumer = new Consumer("127.0.0.1", 8888, "flash_sale_orders", 0);
+        Consumer consumer = new Consumer("127.0.0.1", 8888, "flash_sale_orders", "aminh's laptop");
         consumer.startConsuming();
     }
 }

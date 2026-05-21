@@ -1,5 +1,6 @@
 package com.shopee.queue.network;
 
+import com.shopee.queue.api.IClusterNode;
 import com.shopee.queue.api.IQueueManager;
 import com.shopee.queue.api.IServer;
 import com.shopee.queue.common.config.BrokerConfig;
@@ -21,16 +22,23 @@ public class TcpServerImpl implements IServer {
     private ServerSocket serverSocket;
     private boolean running = false;
     private Thread listenerThread;
-    private final IQueueManager queueManager; // ADD THIS
+    private final IQueueManager queueManager; 
+
+    private final IClusterNode raftNode;
+
+    private int port;
+
 
     // ADD THIS CONSTRUCTOR
-    public TcpServerImpl(IQueueManager queueManager) {
+    public TcpServerImpl(IQueueManager queueManager, IClusterNode raftNode, int port) {
         this.queueManager = queueManager;
+        this.raftNode = raftNode;
+        this.port = port;
     }
 
     @Override
     public void startServer() {
-        int port = BrokerConfig.DEFAULT_PORT;
+        int port = this.port;
         try {
             serverSocket = new ServerSocket(port);
             running = true;
@@ -44,7 +52,7 @@ public class TcpServerImpl implements IServer {
                         logger.info("New connection established from {}", clientSocket.getRemoteSocketAddress());
                         
                         // Hand over the socket to a ClientHandler
-                        ClientHandler handler = new ClientHandler(clientSocket, queueManager);
+                        ClientHandler handler = new ClientHandler(clientSocket, queueManager, raftNode);
                         new Thread(handler).start();
                         
                     } catch (IOException e) {

@@ -32,9 +32,9 @@ public class Producer {
              ObjectInputStream in = new ObjectInputStream(socket.getInputStream())) {
 
             // 1. Create a MessagePacket
-            // Topic: flash_sale_orders
+            // Topic:  flash_sale_orders
             // Payload: The byte array
-            // MessageId: 0 (The Broker will assign the real ID)
+            // MessageId: 0 (The Broker will assignthe real ID)
             // Type: 0 (Type 0 = Produce Request)
             MessagePacket packet = new MessagePacket(topic, payload, 0, 0);
 

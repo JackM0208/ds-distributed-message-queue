@@ -4,18 +4,27 @@ import java.io.*;
 import java.util.Properties;
 import java.util.concurrent.ConcurrentHashMap;
 
+import java.util.concurrent.Executors;
+import java.util.concurrent.ScheduledExecutorService;
+import java.util.concurrent.TimeUnit;
+
 public class ConsumerOffsetManager {
     private final ConcurrentHashMap<String, Long> offsetMap = new ConcurrentHashMap<>();
     private final File offsetFile = new File("data/offsets.properties");
 
+    private final ScheduledExecutorService scheduler = Executors.newSingleThreadScheduledExecutor();
+
     public ConsumerOffsetManager() {
         loadFromDisk();
+
+        scheduler.scheduleAtFixedRate(this::saveToDisk, 5, 5, TimeUnit.SECONDS);
+
     }
 
     public void commitOffset(String consumerId, String topicName, long offset) {
         String key = consumerId + "-" + topicName;
         offsetMap.put(key, offset);
-        saveToDisk(); // In production, do this asynchronously in a background thread
+        //saveToDisk(); In production, do this asynchronously in a background thread
     }
 
     public long getOffset(String consumerId, String topicName) {
