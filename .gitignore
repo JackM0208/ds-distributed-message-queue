@@ -1,54 +1,55 @@
+# ====================================================================
+# Java & Maven Build Outputs
+# ====================================================================
 target/
+*.class
 !.mvn/wrapper/maven-wrapper.jar
-!**/src/main/**/target/
-!**/src/test/**/target/
 
-### IntelliJ IDEA ###
-.idea/modules.xml
-.idea/jarRepositories.xml
-.idea/compiler.xml
-.idea/libraries/
+# ====================================================================
+# Node.js & React Frontend
+# ====================================================================
+node_modules/
+**/node_modules/
+frontend/dist/
+frontend/.env.local
+
+# ====================================================================
+# Distributed Message Queue Storage (Persistent Logs)
+# ====================================================================
+data/
+**/data/
+
+# ====================================================================
+# IDE Configurations (IntelliJ, VS Code, Eclipse, NetBeans)
+# ====================================================================
+# IntelliJ IDEA
+.idea/
 *.iws
 *.iml
 *.ipr
 
-### Eclipse ###
+# VS Code
+.vscode/
+
+# Eclipse
 .apt_generated
 .classpath
 .factorypath
 .project
-.settings
+.settings/
 .springBeans
 .sts4-cache
 
-### NetBeans ###
+# NetBeans
 /nbproject/private/
 /nbbuild/
 /dist/
 /nbdist/
 /.nb-gradle/
 build/
-!**/src/main/**/build/
-!**/src/test/**/build/
 
-### VS Code ###
-.vscode/
-
-### Mac OS ###
-.DS_StorepthDocument.md
-
-
-data/
-
-
-# Node dependencies (Frontend)
-**/node_modules/
-frontend/dist/
-frontend/.env.local
-
-# Java Build Output (Backend)
-**/target/
-*.class
-
-# Clustered Node Database & Log Segments (Local Data Persistence)
-**/data/
+# ====================================================================
+# OS System Metadata
+# ====================================================================
+.DS_Store
+Thumbs.db
