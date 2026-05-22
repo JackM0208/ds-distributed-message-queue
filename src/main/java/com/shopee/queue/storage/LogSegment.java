@@ -16,7 +16,7 @@ public class LogSegment {
     private final String filePath;
     private final RandomAccessFile randomAccessFile;
     private final FileChannel fileChannel;
-    private long currentPosition;
+    private long currentPosition;//this is store in the number of bytes
 
     public LogSegment(String filePath) throws IOException {
         this.filePath = filePath;

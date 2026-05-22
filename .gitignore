@@ -39,3 +39,16 @@ build/
 
 
 data/
+
+
+# Node dependencies (Frontend)
+**/node_modules/
+frontend/dist/
+frontend/.env.local
+
+# Java Build Output (Backend)
+**/target/
+*.class
+
+# Clustered Node Database & Log Segments (Local Data Persistence)
+**/data/

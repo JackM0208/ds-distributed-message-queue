@@ -3,33 +3,33 @@ package com.shopee.queue.network;
 import com.shopee.queue.api.IClusterNode;
 import com.shopee.queue.api.IQueueManager;
 import com.shopee.queue.api.IServer;
-import com.shopee.queue.common.config.BrokerConfig;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 import java.io.IOException;
 import java.net.ServerSocket;
 import java.net.Socket;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
 
 /**
- * Implementation of the network server using standard Java TCP Sockets.
- * This server listens on a configurable port and accepts incoming connections
- * from Producers and Consumers, spawning a new ClientHandler for each.
+ * Implementation of the network server using Java TCP Sockets.
+ * Optimized with a JDK 21 Virtual Thread Executor to prevent heavy
+ * thread-creation and memory overhead under concurrent client traffic.
  */
 public class TcpServerImpl implements IServer {
     private static final Logger logger = LoggerFactory.getLogger(TcpServerImpl.class);
-    
+
     private ServerSocket serverSocket;
     private boolean running = false;
     private Thread listenerThread;
-    private final IQueueManager queueManager; 
-
+    private final IQueueManager queueManager;
     private final IClusterNode raftNode;
+    private final int port;
 
-    private int port;
+    // Reusable Executor Service for managing ClientHandler tasks
+    private ExecutorService connectionExecutor;
 
-
-    // ADD THIS CONSTRUCTOR
     public TcpServerImpl(IQueueManager queueManager, IClusterNode raftNode, int port) {
         this.queueManager = queueManager;
         this.raftNode = raftNode;
@@ -42,7 +42,11 @@ public class TcpServerImpl implements IServer {
         try {
             serverSocket = new ServerSocket(port);
             running = true;
-            logger.info("TCP Server started, listening on port {}", port);
+
+            // OPTIMIZATION: Initialize virtual thread executor (JDK 21+)
+            this.connectionExecutor = Executors.newVirtualThreadPerTaskExecutor();
+
+            logger.info("TCP Server started, listening on port {} (Virtual Thread pool active)", port);
 
             // Run the acceptance loop in a separate thread
             listenerThread = new Thread(() -> {
@@ -50,11 +54,12 @@ public class TcpServerImpl implements IServer {
                     try {
                         Socket clientSocket = serverSocket.accept();
                         logger.info("New connection established from {}", clientSocket.getRemoteSocketAddress());
-                        
-                        // Hand over the socket to a ClientHandler
+
                         ClientHandler handler = new ClientHandler(clientSocket, queueManager, raftNode);
-                        new Thread(handler).start();
-                        
+
+                        // OPTIMIZATION: Submit task to virtual thread pool
+                        connectionExecutor.submit(handler);
+
                     } catch (IOException e) {
                         if (running) {
                             logger.error("Error accepting connection: {}", e.getMessage());
@@ -62,7 +67,7 @@ public class TcpServerImpl implements IServer {
                     }
                 }
             }, "ServerListenerThread");
-            
+
             listenerThread.start();
 
         } catch (IOException e) {
@@ -77,6 +82,9 @@ public class TcpServerImpl implements IServer {
         try {
             if (serverSocket != null && !serverSocket.isClosed()) {
                 serverSocket.close();
+            }
+            if (connectionExecutor != null && !connectionExecutor.isShutdown()) {
+                connectionExecutor.shutdown(); // Gracefully release thread pool resources
             }
         } catch (IOException e) {
             logger.error("Error closing server socket: {}", e.getMessage());

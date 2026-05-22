@@ -3,134 +3,151 @@ package com.shopee.queue.client;
 import com.shopee.queue.network.protocol.MessagePacket;
 import java.io.ObjectInputStream;
 import java.io.ObjectOutputStream;
+import java.net.InetSocketAddress;
 import java.net.Socket;
 import java.nio.charset.StandardCharsets;
 
 /**
  * Client-side SDK for consuming messages from the distributed queue.
- * This class pulls messages one-by-one and tracks its own progress (offset).
+ * Tracks offsets and supports Leader redirection and failover routing.
  */
 public class Consumer {
-    private final String host;
-    private final int port;
-    private final String topic;
+    private static final int[] BOOTSTRAP_PORTS = {8888, 8889, 8890};
+    private static final String HOST = "127.0.0.1";
+    private static final int CONNECT_TIMEOUT_MS = 1000;
 
+    private final String topic;
     private final String consumerId;
     private long currentOffset;
+    private int activeLeaderPort;
 
-    public Consumer(String host, int port, String topic, String consumerId) {
-        this.host = host;
-        this.port = port;
+    public Consumer(String topic, String consumerId) {
         this.topic = topic;
         this.consumerId = consumerId;
-
+        this.activeLeaderPort = BOOTSTRAP_PORTS[0];
         this.currentOffset = fetchInitialOffset();
     }
 
-    /**
-     * Connects to the broker and tries to pull a single message.
-     * @return The MessagePacket received, or null if no new data exists.
-     */
+    private int mapNodeToHostPort(String nodeAddress) {
+        if (nodeAddress == null) return 8888;
+        if (nodeAddress.contains("broker-2")) return 8889;
+        if (nodeAddress.contains("broker-3")) return 8890;
+        return 8888;
+    }
 
-    private long fetchInitialOffset(){
-        try(
-            Socket socket = new Socket(host, port);
-            ObjectOutputStream out = new ObjectOutputStream(socket.getOutputStream());
-            ObjectInputStream in = new ObjectInputStream(socket.getInputStream());
-        ) {
-            MessagePacket request = new MessagePacket(topic, consumerId.getBytes(StandardCharsets.UTF_8), 0, 3);
-            out.writeObject(request);
-            out.flush();
+    private long fetchInitialOffset() {
+        int attempts = 0;
+        while (attempts < BOOTSTRAP_PORTS.length * 2) {
+            try (Socket socket = new Socket()) {
+                socket.connect(new InetSocketAddress(HOST, activeLeaderPort), CONNECT_TIMEOUT_MS);
+                try (ObjectOutputStream out = new ObjectOutputStream(socket.getOutputStream());
+                     ObjectInputStream in = new ObjectInputStream(socket.getInputStream())) {
 
-            Object response = in.readObject();
-            if (response instanceof MessagePacket){
-                MessagePacket received = (MessagePacket) response;
-                System.out.println("[Consumer] Fetched saved offset from Broker: " + received.getMessageId());
-                return received.getMessageId();
+                    MessagePacket request = new MessagePacket(topic, consumerId.getBytes(StandardCharsets.UTF_8), 0, 3);
+                    out.writeObject(request);
+                    out.flush();
+
+                    Object response = in.readObject();
+                    if (response instanceof MessagePacket) {
+                        MessagePacket received = (MessagePacket) response;
+
+                        // Handle redirection
+                        if (received.getType() == 2 && received.getMessageId() == -2) {
+                            activeLeaderPort = mapNodeToHostPort(received.getSenderId());
+                            attempts++;
+                            continue;
+                        }
+
+                        System.out.println("[Consumer] Fetched saved offset from Broker: " + received.getMessageId());
+                        return received.getMessageId();
+                    }
+                }
+            } catch (Exception e) {
+                activeLeaderPort = BOOTSTRAP_PORTS[(attempts + 1) % BOOTSTRAP_PORTS.length];
+                attempts++;
             }
-        }
-        catch (Exception e){
-            System.err.println("[Consumer] Failed to fetch initial offset. Defaulting to 0. Error: " + e.getMessage());
         }
         return 0;
     }
 
-    private void commitOffset(long processedOffset){
-        try(
-            Socket socket = new Socket(host, port);
-            ObjectOutputStream out = new ObjectOutputStream(socket.getOutputStream());
-            ObjectInputStream in = new ObjectInputStream(socket.getInputStream()))
-        {
-            MessagePacket request = new MessagePacket(topic, consumerId.getBytes(StandardCharsets.UTF_8), processedOffset, 2);
-            out.writeObject(request);
-            out.flush();
-            System.out.println("[Consumer] Committed offset: " + processedOffset);
-            
-        } catch (Exception e){
-            System.err.println("[Consumer] Failed to commit offset: " + e.getMessage());
+    private void commitOffset(long processedOffset) {
+        int attempts = 0;
+        while (attempts < BOOTSTRAP_PORTS.length * 2) {
+            try (Socket socket = new Socket()) {
+                socket.connect(new InetSocketAddress(HOST, activeLeaderPort), CONNECT_TIMEOUT_MS);
+                try (ObjectOutputStream out = new ObjectOutputStream(socket.getOutputStream());
+                     ObjectInputStream in = new ObjectInputStream(socket.getInputStream())) {
+
+                    MessagePacket request = new MessagePacket(topic, consumerId.getBytes(StandardCharsets.UTF_8), processedOffset, 2);
+                    out.writeObject(request);
+                    out.flush();
+
+                    Object response = in.readObject();
+                    if (response instanceof MessagePacket) {
+                        MessagePacket received = (MessagePacket) response;
+                        if (received.getType() == 2 && received.getMessageId() == -2) {
+                            activeLeaderPort = mapNodeToHostPort(received.getSenderId());
+                            attempts++;
+                            continue;
+                        }
+                        System.out.println("[Consumer] Committed offset: " + processedOffset);
+                        break;
+                    }
+                }
+            } catch (Exception e) {
+                activeLeaderPort = BOOTSTRAP_PORTS[(attempts + 1) % BOOTSTRAP_PORTS.length];
+                attempts++;
+            }
         }
     }
-    
+
     public MessagePacket poll() {
-        try (Socket socket = new Socket(host, port);
-             ObjectOutputStream out = new ObjectOutputStream(socket.getOutputStream());
-             ObjectInputStream in = new ObjectInputStream(socket.getInputStream())) {
+        int attempts = 0;
+        while (attempts < BOOTSTRAP_PORTS.length * 2) {
+            try (Socket socket = new Socket()) {
+                socket.connect(new InetSocketAddress(HOST, activeLeaderPort), CONNECT_TIMEOUT_MS);
+                try (ObjectOutputStream out = new ObjectOutputStream(socket.getOutputStream());
+                     ObjectInputStream in = new ObjectInputStream(socket.getInputStream())) {
 
-            // 1. Create a Pull Request (Type 1)
-            // We put the offset we WANT into the messageId field
-            MessagePacket request = new MessagePacket(topic, null, currentOffset, 1);
+                    MessagePacket request = new MessagePacket(topic, null, currentOffset, 1);
+                    out.writeObject(request);
+                    out.flush();
 
-            // 2. Send request to Broker
-            out.writeObject(request);
-            out.flush();
+                    Object response = in.readObject();
+                    if (response instanceof MessagePacket) {
+                        MessagePacket received = (MessagePacket) response;
 
-            // 3. Receive Response
-            Object response = in.readObject();
-            if (response instanceof MessagePacket) {
-                MessagePacket received = (MessagePacket) response;
-
-                // Check if the Broker found data (messageId will NOT be -1)
-                if (received.getMessageId() != -1) {
-                    return received;
+                        if (received.getMessageId() != -1) {
+                            return received;
+                        }
+                        return null; // Empty queue
+                    }
                 }
+            } catch (Exception e) {
+                activeLeaderPort = BOOTSTRAP_PORTS[(attempts + 1) % BOOTSTRAP_PORTS.length];
+                attempts++;
             }
-
-        } catch (Exception e) {
-            System.err.println("[Consumer] Connection error: " + e.getMessage());
         }
         return null;
     }
 
-    /**
-     * Starts a continuous loop to consume all messages from the topic.
-     */
     public void startConsuming() {
-        System.out.println("[Consumer] Started. Subscribed to: " + topic);
-        System.out.println("[Consumer] Starting from Offset: " + currentOffset);
-
+        System.out.println("[Consumer] Subscribed to: " + topic + " starting from Offset: " + currentOffset);
         while (true) {
             MessagePacket packet = poll();
-
             if (packet != null) {
-                // SUCCESS: We found a message!
                 String content = new String(packet.getPayload(), StandardCharsets.UTF_8);
-
                 System.out.println("==========================================");
                 System.out.println(" RECEIVED MESSAGE #" + packet.getMessageId());
                 System.out.println(" CONTENT: " + content);
                 System.out.println("==========================================");
 
-                // Move to the next message ID
                 currentOffset = packet.getMessageId() + 1;
-
                 commitOffset(currentOffset);
-
             } else {
-                // EMPTY: No more messages for now.
-                // We sleep for a bit so we don't spam the network.
                 try {
-                    System.out.println("[Consumer] Queue empty. Waiting for new messages...");
-                    Thread.sleep(5000); // Wait 2 seconds
+                    System.out.println("[Consumer] Queue empty. Awaiting writes...");
+                    Thread.sleep(2000);
                 } catch (InterruptedException e) {
                     break;
                 }
@@ -139,8 +156,7 @@ public class Consumer {
     }
 
     public static void main(String[] args) {
-        // Start consumer for "flash_sale_orders" starting at message 0
-        Consumer consumer = new Consumer("127.0.0.1", 8888, "flash_sale_orders", "aminh's laptop");
+        Consumer consumer = new Consumer("flash_sale_orders", "aminh's laptop");
         consumer.startConsuming();
     }
 }

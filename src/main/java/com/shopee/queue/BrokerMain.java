@@ -9,118 +9,97 @@ import com.shopee.queue.core.ConsumerOffsetManager;
 import com.shopee.queue.core.QueueManagerImpl;
 import com.shopee.queue.network.TcpServerImpl;
 import com.shopee.queue.storage.StorageManagerImpl;
+import com.shopee.queue.network.BrokerWebSocketBridge;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
-/**
- * <h1>BrokerMain - The Assembler</h1>
- * <p>
- * This class is the entry point of the Distributed Message Queue Broker.
- * Its primary responsibility is Dependency Injection and Lifecycle Management.
- * </p>
- * 
- * <h3>The Role of the Assembler:</h3>
- * <ul>
- *     <li><b>Component Orchestration:</b> It wires together the Network Layer (Netty), 
- *         the Core Logic (Queue Management), the Storage Engine (Log/Index), 
- *         and the Consensus Module (Raft).</li>
- *     <li><b>Graceful Shutdown:</b> It ensures that all components are stopped 
- *         in the correct order (e.g., stopping the server before flushing logs).</li>
- *     <li><b>Configuration Loading:</b> It initializes the system based on 
- *         {@code BrokerConfig}.</li>
- * </ul>
- * 
- * <h3>Design Philosophy:</h3>
- * <p>
- * By separating the assembly logic from the business logic, we achieve a 
- * "Plug-and-Play" architecture. For example, we could swap the Raft-based 
- * {@code IClusterNode} with a standalone implementation without touching 
- * the {@code IServer} logic.
- * </p>
- */
 public class BrokerMain {
     private static final Logger logger = LoggerFactory.getLogger(BrokerMain.class);
 
     private final IServer server;
-    private final IQueueManager queueManager;
     private final IStorageManager storageManager;
-    private final IClusterNode clusterNode;
 
-    /**
-     * Constructs the Broker by injecting all major components.
-     * 
-     * @param server The network server (e.g., Netty implementation)
-     * @param queueManager The traffic cop managing topics and offsets
-     * @param storageManager The muscle handling physical file I/O
-     * @param clusterNode The brain handling Raft consensus
-     */
-    public BrokerMain(IServer server, 
-                      IQueueManager queueManager, 
-                      IStorageManager storageManager, 
-                      IClusterNode clusterNode) {
+    public static BrokerWebSocketBridge bridge;
+
+    public BrokerMain(IServer server, IStorageManager storageManager) {
         this.server = server;
-        this.queueManager = queueManager;
         this.storageManager = storageManager;
-        this.clusterNode = clusterNode;
     }
 
-    /**
-     * Starts the broker and all its sub-components.
-     */
     public void start() {
         logger.info("Starting Distributed Message Queue Broker...");
-        // 1. Initialize Storage (e.g., recover segments from disk)
-        // 2. Start Cluster Node (e.g., join Raft group)
-        
-        // 3. Start Server (e.g., bind port 8888)
         if (server != null) {
             server.startServer();
         }
     }
 
-    /**
-     * Performs a graceful shutdown of the broker.
-     */
     public void shutdown() {
         logger.info("Shutting down Distributed Message Queue Broker...");
-
-        // 1. Stop accepting network requests
         if (server != null) {
             server.stopServer();
         }
-
-        // 2. Flush and seal all disk files
         if (storageManager != null) {
             storageManager.shutdown();
         }
-
         logger.info("Shutdown complete.");
     }
 
     public static void main(String[] args) {
-
         int port = (args.length > 0) ? Integer.parseInt(args[0]) : 8888;
 
-        // 1. Bottom Layer: Storage (No dependencies)
+        String envNodeId = System.getenv("NODE_ID");
+        String envWsPort = System.getenv("WS_PORT");
+
+        String nodeId = (envNodeId != null) ? envNodeId : "broker-1";
+        int wsPort = 9001;
+        if (envWsPort != null) {
+            try {
+                wsPort = Integer.parseInt(envWsPort);
+            } catch (NumberFormatException e) {
+                // Keep default
+            }
+        } else {
+            if (port == 8889) {
+                nodeId = "broker-2";
+                wsPort = 9002;
+            } else if (port == 8890) {
+                nodeId = "broker-3";
+                wsPort = 9003;
+            }
+        }
+
         StorageManagerImpl storageManager = new StorageManagerImpl();
         ConsumerOffsetManager offsetManager = new ConsumerOffsetManager();
+        QueueManagerImpl queueManager = new QueueManagerImpl(storageManager, offsetManager);
 
-        // 2. Middle Layer: Queue Manager (Depends on Storage)
-        QueueManagerImpl queueManager =
-                new QueueManagerImpl(storageManager, offsetManager);
+        // START WEBSOCKET TELEMETRY BRIDGE (Inject queueManager to allow direct web writes)
+        try {
+            bridge = new BrokerWebSocketBridge(nodeId, wsPort, queueManager);
+            bridge.start();
+        } catch (Exception e) {
+            logger.error("Failed to start WebSocket telemetry bridge: " + e.getMessage());
+        }
 
-        // 3. Cluster Node 
-        RaftNodeImpl clusterNode =
-                new RaftNodeImpl(port);
+        RaftNodeImpl clusterNode = new RaftNodeImpl(port, storageManager);
+        TcpServerImpl server = new TcpServerImpl(queueManager, clusterNode, port);
 
-        // 4. Top Layer: Network Server 
-        TcpServerImpl server =
-                new TcpServerImpl(queueManager, clusterNode, port);
+        // Periodically queries physical drive and reports actual offsets & log file sizes
+        new Thread(() -> {
+            while (true) {
+                try {
+                    Thread.sleep(2000);
+                    if (bridge != null) {
+                        double fillRatio = storageManager.getActiveSegmentFillRatio("flash_sale_orders");
+                        long offset = storageManager.getGlobalOffsetCount("flash_sale_orders");
+                        bridge.emitAppend("flash_sale_orders", offset, fillRatio);
+                    }
+                } catch (Exception e) {
+                    // Fail quietly
+                }
+            }
+        }, "InitialStateReporter").start();
 
-        // Assemble and Start
-        BrokerMain broker = new BrokerMain(server, queueManager, storageManager, clusterNode);
+        BrokerMain broker = new BrokerMain(server, storageManager);
         broker.start();
     }
-
-
 }

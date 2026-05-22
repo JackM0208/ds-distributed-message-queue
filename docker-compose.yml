@@ -3,28 +3,50 @@ version: '3.8'
 services:
   broker-1:
     build: .
+    container_name: broker-1
     ports:
-      - "8888:8888"
+      - "8888:8888" # Map Java TCP Broker port to host
+      - "9001:9001" # Map WebSocket Telemetry port to host
+    environment:
+      - NODE_ID=broker-1
+      - WS_PORT=9001
     volumes:
-      - ./data/node-1:/app/data # Lưu dữ liệu ra máy thật để không bị mất
-    command: ["8888"] # Truyền port vào hàm main
+      - ./data/node-1:/app/data
+    networks:
+      - mq-network
+    command: ["8888"]
 
   broker-2:
     build: .
+    container_name: broker-2
     ports:
       - "8889:8888"
+      - "9002:9002"
+    environment:
+      - NODE_ID=broker-2
+      - WS_PORT=9002
     volumes:
       - ./data/node-2:/app/data
+    networks:
+      - mq-network
     command: ["8888"]
 
   broker-3:
     build: .
+    container_name: broker-3
     ports:
       - "8890:8888"
+      - "9003:9003"
+    environment:
+      - NODE_ID=broker-3
+      - WS_PORT=9003
     volumes:
       - ./data/node-3:/app/data
+    networks:
+      - mq-network
     command: ["8888"]
 
 networks:
-  default:
+  mq-network:
+    driver: bridge
     name: mq-network

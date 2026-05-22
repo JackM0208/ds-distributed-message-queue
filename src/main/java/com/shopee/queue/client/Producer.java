@@ -3,81 +3,86 @@ package com.shopee.queue.client;
 import com.shopee.queue.network.protocol.MessagePacket;
 import java.io.ObjectInputStream;
 import java.io.ObjectOutputStream;
+import java.net.InetSocketAddress;
 import java.net.Socket;
 import java.nio.charset.StandardCharsets;
 
 /**
  * Client-side SDK for producing messages to the distributed queue.
- * This class handles the TCP connection and serialization of MessagePackets.
+ * Implements Bootstrap failover routing and active Leader redirection.
  */
 public class Producer {
-    private final String host;
-    private final int port;
+    private static final int[] BOOTSTRAP_PORTS = {8888, 8889, 8890};
+    private static final String HOST = "127.0.0.1";
+    private static final int CONNECT_TIMEOUT_MS = 1000;
 
-    public Producer(String host, int port) {
-        this.host = host;
-        this.port = port;
+    private int mapNodeToHostPort(String nodeAddress) {
+        if (nodeAddress == null) return 8888;
+        if (nodeAddress.contains("broker-2")) return 8889;
+        if (nodeAddress.contains("broker-3")) return 8890;
+        return 8888;
     }
 
-    /**
-     * Sends a message to a specific topic and waits for an Acknowledgement (ACK).
-     * @param topic Topic to send to (e.g., "flash_sale_orders")
-     * @param payload The actual data (e.g., order details)
-     */
     public void send(String topic, byte[] payload) {
-        System.out.println("[Producer] Attempting to connect to Broker at " + host + ":" + port);
+        boolean success = false;
+        int targetPort = BOOTSTRAP_PORTS[0];
+        int attempts = 0;
 
-        try (Socket socket = new Socket(host, port);
-             ObjectOutputStream out = new ObjectOutputStream(socket.getOutputStream());
-             ObjectInputStream in = new ObjectInputStream(socket.getInputStream())) {
+        while (attempts < BOOTSTRAP_PORTS.length * 2) {
+            System.out.println("[Producer] Connecting to broker target: " + HOST + ":" + targetPort);
 
-            // 1. Create a MessagePacket
-            // Topic:  flash_sale_orders
-            // Payload: The byte array
-            // MessageId: 0 (The Broker will assignthe real ID)
-            // Type: 0 (Type 0 = Produce Request)
-            MessagePacket packet = new MessagePacket(topic, payload, 0, 0);
+            try (Socket socket = new Socket()) {
+                socket.connect(new InetSocketAddress(HOST, targetPort), CONNECT_TIMEOUT_MS);
 
-            // 2. Send the packet to the Broker
-            out.writeObject(packet);
-            out.flush();
-            System.out.println("[Producer] Message sent to topic [" + topic + "]. Waiting for ACK...");
+                try (ObjectOutputStream out = new ObjectOutputStream(socket.getOutputStream());
+                     ObjectInputStream in = new ObjectInputStream(socket.getInputStream())) {
 
-            // 3. Receive the Response (ACK) from the Broker
-            Object response = in.readObject();
-            if (response instanceof MessagePacket) {
-                MessagePacket ack = (MessagePacket) response;
+                    MessagePacket packet = new MessagePacket(topic, payload, 0, 0);
+                    out.writeObject(packet);
+                    out.flush();
 
-                // Type 2 is ACK (as defined in our ClientHandler logic)
-                if (ack.getType() == 2) {
-                    System.out.println("--------------------------------------------------");
-                    System.out.println("[SUCCESS] Broker acknowledged the message!");
-                    System.out.println("[INFO] Official Message ID assigned: " + ack.getMessageId());
-                    System.out.println("[INFO] Timestamp: " + ack.getTimeCreated());
-                    System.out.println("--------------------------------------------------");
-                } else {
-                    System.out.println("[ERROR] Received unexpected packet type: " + ack.getType());
+                    Object response = in.readObject();
+                    if (response instanceof MessagePacket) {
+                        MessagePacket ack = (MessagePacket) response;
+
+                        if (ack.getType() == 2 && ack.getMessageId() >= 0) {
+                            System.out.println("--------------------------------------------------");
+                            System.out.println("[SUCCESS] Clustered persistence and replication completed!");
+                            System.out.println("[INFO] Official Offset ID assigned on disk: " + ack.getMessageId());
+                            System.out.println("--------------------------------------------------");
+                            success = true;
+                            break;
+                        }
+
+                        else if (ack.getType() == 2 && ack.getMessageId() == -2) {
+                            String activeLeader = ack.getSenderId();
+                            int redirectedPort = mapNodeToHostPort(activeLeader);
+                            System.out.println("[CLUSTER] Target node was a follower. Redirecting to active leader: "
+                                    + activeLeader + " (Host Port: " + redirectedPort + ")");
+                            targetPort = redirectedPort;
+                            attempts++;
+                            continue;
+                        }
+                    }
                 }
+            } catch (Exception e) {
+                System.err.println("[WARN] Connection failed on port: " + targetPort + ". Trying next bootstrap node...");
+                targetPort = BOOTSTRAP_PORTS[(attempts + 1) % BOOTSTRAP_PORTS.length];
+                attempts++;
             }
+        }
 
-        } catch (Exception e) {
-            System.err.println("[CRITICAL] Could not communicate with Broker: " + e.getMessage());
-            e.printStackTrace();
+        if (!success) {
+            System.err.println("[CRITICAL] Write execution failed: All cluster bootstrap nodes are unreachable.");
         }
     }
 
-    /**
-     * Test execution: Sends a successful flash sale order.
-     */
     public static void main(String[] args) {
-        // 1. Create the producer pointing to localhost:8888
-        Producer producer = new Producer("127.0.0.1", 8888);
-
-        // 2. Prepare the order data (Simulating a Shopee Flash Sale)
-        String orderDetails = "ORDER_CONFIRMED: UserID=99, Item=iPhone 15 Pro, Price=999.00 USD, Status=SUCCESS";
+        Producer producer = new Producer();
+        // FIXED: Added newline character (\n) to the end of the order details payload for clean visual file partitioning
+        String orderDetails = "ORDER_CONFIRMED: UserID=99, Item=iPhone 15 Pro, Price=999.00 USD, Status=SUCCESS\n";
         byte[] data = orderDetails.getBytes(StandardCharsets.UTF_8);
 
-        // 3. Send to the "flash_sale_orders" topic
         producer.send("flash_sale_orders", data);
     }
 }

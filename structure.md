@@ -1,59 +1,62 @@
-distributed-pubsub-mq/
-├── pom.xml                          # Maven dependencies (e.g., Netty for network, logging libraries)
-└── src/main/java/com/shopee/mq/
-├── BrokerMain.java              # THE ASSEMBLER. The only file that knows about all packages.
-│                                # It reads the config, instantiates the Impl classes, injects
-│                                # them into each other via the API interfaces, and starts the server.
-│
-├── common/                      # SHARED RESOURCES (Everyone uses this)
-│   ├── config/BrokerConfig.java # Holds constants: Ports, Max File Sizes (e.g., 1GB), timeouts.
-│   └── exceptions/BrokerEx.java # Custom runtime exceptions so the server doesn't crash silently.
-│
-├── api/                         # THE CONTRACTS (Team designs this together on Day 1)
-│   │                            # RULE: No logic goes here. Only interface definitions.
-│   ├── IQueueManager.java       # Defines: createTopic(), pushMessage(), pullMessage()
-│   ├── IStorageManager.java     # Defines: appendToLog(), readFromOffset()
-│   ├── IClusterNode.java        # Defines: requestVote(), replicateData(), getLeader()
-│   └── IServer.java             # Defines: startServer(), stopServer()
-│
-├── core/                        # PERSON 3: THE TRAFFIC COP (Business Logic)
-│   │                            # Goal: Route incoming traffic to the correct disk files.
-│   ├── QueueManagerImpl.java    # Implements IQueueManager. Holds a Map<String, MessageQueue>.
-│   │                            # When a packet arrives, it finds the right queue and passes it down.
-│   ├── MessageQueue.java        # Represents a specific Topic (e.g., "Payments"). It validates
-│   │                            # the message and tells the IStorageManager to save it.
-│   └── ConsumerOffsetManager.java # The Tracker. Saves a small file to disk tracking that
-│                                # "PaymentServiceGroup" has read up to offset #50,000.
-│
-├── storage/                     # PERSON 2: THE MUSCLE (Disk I/O)
-│   │                            # Goal: Never drop a message, write to disk at blazing speeds.
-│   ├── StorageManagerImpl.java  # Implements IStorageManager. Manages the lifecycle of files.
-│   │                            # If a log file hits 1GB, this class freezes it and creates a new one.
-│   ├── LogSegment.java          # THE QUEUE. Uses Java NIO (`FileChannel`) to do sequential
-│   │                            # "Append-Only" writes to the hard drive. Bypasses normal Java
-│   │                            # memory and writes straight to the OS Page Cache.
-│   └── IndexSegment.java        # THE LOOKUP. Uses memory-mapped files (`MappedByteBuffer`).
-│                                # Maps Offset #50,000 -> Byte Position 1,024,560 instantly.
-│
-├── network/                     # PERSON 1: THE FRONT DOOR (TCP & Serialization)
-│   │                            # Goal: Handle 10,000+ simultaneous connections without crashing.
-│   ├── TcpServerImpl.java       # Implements IServer. Uses Java NIO `ServerSocketChannel` (or Netty).
-│   │                            # Listens for connections and delegates them to a thread pool.
-│   ├── ClientHandler.java       # Translates raw TCP byte streams into `MessagePacket` objects.
-│   │                            # Routes the packet to the `IQueueManager` (Person 3's code).
-│   └── protocol/MessagePacket.java # The DTO. Knows how to serialize its fields (Topic, Payload,
-│                                # Timestamp) into a raw `byte[]` for network and disk storage.
-│
-├── cluster/                     # PERSON 4: THE BRAINS (High Availability)
-│   │                            # Goal: If someone unplugs Broker 1, Broker 2 takes over instantly.
-│   ├── RaftNodeImpl.java        # Implements IClusterNode. Sends heartbeats to other brokers.
-│   │                            # If the Leader dies, it initiates a vote to elect a new Leader.
-│   └── Replicator.java          # The Copier. Acts as a TCP client inside the broker. It asks the
-│                                # Leader's IStorageManager for new bytes and saves them locally.
-│
-└── client/                      # PERSON 1: THE EXTERNAL SDKs
-│                            # Goal: Make it easy for other apps to talk to your Broker.
-├── Producer.java            # Used by Shopee Web App. Has a simple method: `send(topic, data)`.
-│                            # Under the hood, it connects via TCP and formats the MessagePacket.
-└── Consumer.java            # Used by Shopee Payment App. Has a method: `poll()`.
-# Connects via TCP, fetches unread messages, and sends an ACK back.
+ds-distributed-message-queue/
+├── Bao_Cao_Network_Layer.md
+├── Dockerfile
+├── README.md
+├── classpath.txt
+├── data/                            # Persistent storage for node data and log segments
+│   ├── node-1/
+│   ├── node-2/
+│   ├── node-3/
+│   └── test-persistence/
+├── docker-compose.yml
+├── frontend/                        # React/Vite dashboard for monitoring
+│   ├── src/
+│   │   ├── FlashSaleWarRoom.jsx
+│   │   ├── index.css
+│   │   └── main.jsx
+│   └── package.json
+├── knowledge.md
+├── orchestrator/                    # Node.js orchestrator for cluster management
+├── pom.xml                          # Maven dependencies (Netty, Jackson, etc.)
+├── pthDocument.md
+├── src/
+│   ├── main/java/com/shopee/queue/
+│   │   ├── BrokerMain.java          # THE ASSEMBLER. Initializes and starts the broker services.
+│   │   ├── api/                     # Service Interfaces (The Contracts)
+│   │   │   ├── IClusterNode.java    # Defines Raft-related operations
+│   │   │   ├── IQueueManager.java   # Defines topic and message management
+│   │   │   ├── IServer.java         # Defines server lifecycle (start/stop)
+│   │   │   └── IStorageManager.java # Defines log and index management
+│   │   ├── client/                  # External SDKs (Producer/Consumer)
+│   │   │   ├── Consumer.java        # Polls messages and sends ACKs
+│   │   │   └── Producer.java        # Sends messages to the broker
+│   │   ├── cluster/                 # High Availability (Raft implementation)
+│   │   │   ├── ClusterClient.java   # Communication between cluster nodes
+│   │   │   ├── RaftNodeImpl.java    # Heartbeats, election, and state machine
+│   │   │   └── Replicator.java      # Replicates log data from leader to followers
+│   │   ├── common/                  # Shared Resources
+│   │   │   ├── config/
+│   │   │   │   └── BrokerConfig.java # System-wide constants and configurations
+│   │   │   └── exceptions/
+│   │   │       ├── BrokerEx.java
+│   │   │       └── QueueEx.java
+│   │   ├── core/                    # Business Logic (Traffic Cop)
+│   │   │   ├── ConsumerOffsetManager.java # Tracks reading progress for consumer groups
+│   │   │   ├── MessageQueue.java    # Per-topic logic and storage coordination
+│   │   │   └── QueueManagerImpl.java # Routes traffic to specific MessageQueues
+│   │   ├── network/                 # Front Door (TCP & WebSockets)
+│   │   │   ├── BrokerWebSocketBridge.java # Bridges TCP data to monitoring frontend
+│   │   │   ├── ClientHandler.java   # Netty handler for decoding/routing packets
+│   │   │   ├── TcpServerImpl.java   # Netty-based TCP server implementation
+│   │   │   └── protocol/
+│   │   │       └── MessagePacket.java # The DTO for network and disk serialization
+│   │   └── storage/                 # Disk I/O (The Muscle)
+│   │       ├── IndexSegment.java    # Memory-mapped index (Offset -> Position)
+│   │       ├── LogSegment.java      # Sequential append-only data files
+│   │       └── StorageManagerImpl.java # Manages log/index lifecycle and file rotation
+│   └── test/java/com/shopee/queue/   # Unit and Integration Tests
+│       ├── cluster/
+│       ├── core/
+│       ├── network/
+│       └── storage/
+└── structure.md
