@@ -234,19 +234,21 @@ export default function FlashSaleWarRoom() {
                             const fileSizeVal = data["fileSize"];
                             const targetNode = data["node"];
 
+                            // FIXED: Map offsets to true total written count (+1 offset offset adjustment)
+                            const trueCount = offsetVal + 1;
+
                             setNodes(prev => ({
                                 ...prev,
                                 [targetNode]: {
                                     ...prev[targetNode],
-                                    offset: offsetVal,
+                                    offset: trueCount,
                                     diskGB: fileSizeVal,
                                 }
                             }));
 
-                            if (offsetVal > 0) {
-                                setTotalOrders(offsetVal);
-                                pushLog(`[STORAGE] ${targetNode} → Appended offset ${offsetVal.toLocaleString()} (Log Fill: ${(fileSizeVal * 100).toFixed(1)}%)`, "STORAGE");
-                            }
+                            // Real total order index counting is 1-indexed (offset + 1)
+                            setTotalOrders(trueCount);
+                            pushLog(`[STORAGE] ${targetNode} → Appended offset ${offsetVal.toLocaleString()} (Log Fill: ${(fileSizeVal * 100).toFixed(1)}%)`, "STORAGE");
                         }
 
                         else if (evType === "cluster") {
@@ -266,7 +268,7 @@ export default function FlashSaleWarRoom() {
                                     status: statusVal,
                                     cpu: cpuVal,
                                     mem: memVal,
-                                    offset: offsetVal,
+                                    offset: offsetVal, // Cluster status offset already reflects the get() count value (e.g. 36)
                                     diskGB: fileSizeVal,
                                     segments: segmentsVal
                                 }
