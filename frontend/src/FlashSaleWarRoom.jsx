@@ -3,8 +3,13 @@ import {
     AreaChart, Area, XAxis, YAxis, CartesianGrid, ResponsiveContainer, Tooltip
 } from "recharts";
 import {
-    Zap, Terminal, Activity, HardDrive, Radio, ShieldCheck, Flame
+    Zap, Terminal, Activity, HardDrive, Radio, ShieldCheck, Flame, Info
 } from "lucide-react";
+
+// Local Sub-Component Imports
+import SystemWorkflowVisualizer from "./components/SystemWorkflowVisualizer.jsx";
+import NodeInternalVisualizer from "./components/NodeInternalVisualizer";
+import StorageVisualizer from "./components/StorageVisualizer";
 
 /* ─── Constants ─────────────────────────────────────────────────── */
 const NODE_IDS   = ["broker-1", "broker-2", "broker-3"];
@@ -37,7 +42,21 @@ const mkNode = (status) => ({
     mem:      25,
 });
 
-/* ─── CSS Stylesheets (Pristine Light Theme, Scanlines Removed) ──── */
+// FIXED: Hoist CustomTooltip definition to module level to prevent render-loop ReferenceErrors
+const CustomTooltip = ({ active, payload }) => {
+    if (!active || !payload?.length) return null;
+    return (
+        <div style={{
+            background: "#ffffff", border: "1px solid rgba(234,88,12,.5)",
+            borderRadius: 6, padding: "6px 12px", fontSize: 12, color: "#ea580c",
+            boxShadow: "0 2px 8px rgba(0,0,0,0.03)"
+        }}>
+            <strong className="mono">{payload[0].value}</strong> <span style={{ color: "#475569" }}>ops/sec</span>
+        </div>
+    );
+};
+
+/* ─── CSS Stylesheets ─── */
 const CSS = `
   .wroom * { box-sizing: border-box; }
   .wroom { 
@@ -104,20 +123,17 @@ const CSS = `
   .log-scroll::-webkit-scrollbar { width: 4px; }
   .log-scroll::-webkit-scrollbar-track { background: transparent; }
   .log-scroll::-webkit-scrollbar-thumb { background: #cbd5e1; border-radius: 2px; }
-`;
 
-const CustomTooltip = ({ active, payload }) => {
-    if (!active || !payload?.length) return null;
-    return (
-        <div style={{
-            background: "#ffffff", border: "1px solid rgba(234,88,12,.5)",
-            borderRadius: 6, padding: "6px 12px", fontSize: 12, color: "#ea580c",
-            boxShadow: "0 2px 8px rgba(0,0,0,0.03)"
-        }}>
-            <strong className="mono">{payload[0].value}</strong> <span style={{ color: "#475569" }}>ops/sec</span>
-        </div>
-    );
-};
+  /* Visualization Specific Animations */
+  @keyframes pulse-glow {
+    0%, 100% { transform: scale(1); opacity: 0.8; }
+    50% { transform: scale(1.3); opacity: 1; }
+  }
+  .active-node {
+    animation: pulse-glow 1.5s ease-in-out infinite;
+    stroke-width: 2px !important;
+  }
+`;
 
 export default function FlashSaleWarRoom() {
     const [chaosMode,  setChaosMode]  = useState(false);
@@ -136,6 +152,11 @@ export default function FlashSaleWarRoom() {
     const [electing,    setElecting]    = useState(false);
     const [newLeader,   setNewLeader]   = useState(null);
     const [wsConnected, setWsConnected] = useState({ "broker-1": false, "broker-2": false, "broker-3": false });
+
+    // Visualization triggers
+    const [showSystemVisualizer, setShowSystemVisualizer] = useState(false);
+    const [showNodeVisualizer, setShowNodeVisualizer] = useState(false);
+    const [showStorageVisualizer, setShowStorageVisualizer] = useState(false);
 
     const chaosModeRef = useRef(chaosMode);
     const nodesRef     = useRef(nodes);
@@ -234,6 +255,10 @@ export default function FlashSaleWarRoom() {
                             const cpuVal = data["cpu"];
                             const memVal = data["mem"];
 
+                            const offsetVal = data["offset"] !== undefined ? data["offset"] : 0;
+                            const fileSizeVal = data["fileSize"] !== undefined ? data["fileSize"] : 0.0;
+                            const segmentsVal = data["segments"] !== undefined ? data["segments"] : 1;
+
                             setNodes(prev => ({
                                 ...prev,
                                 [targetNode]: {
@@ -241,6 +266,9 @@ export default function FlashSaleWarRoom() {
                                     status: statusVal,
                                     cpu: cpuVal,
                                     mem: memVal,
+                                    offset: offsetVal,
+                                    diskGB: fileSizeVal,
+                                    segments: segmentsVal
                                 }
                             }));
                         }
@@ -351,7 +379,7 @@ export default function FlashSaleWarRoom() {
         return () => clearInterval(poll);
     }, []);
 
-    /* ── FIXED: Telemetry Operations-Per-Second Calculator ── */
+    /* ── Telemetry Operations-Per-Second Calculator ── */
     useEffect(() => {
         const interval = setInterval(() => {
             const opsRate = opsCounterRef.current;
@@ -367,6 +395,7 @@ export default function FlashSaleWarRoom() {
         return () => clearInterval(interval);
     }, []);
 
+    // FIXED: Capture variable calculations safely right before return statement to resolve ReferenceErrors
     const currentOps = trafficData[trafficData.length - 1]?.ops ?? 0;
     const aliveCount = Object.values(nodes).filter(n => n.status !== "DEAD").length;
 
@@ -440,7 +469,6 @@ export default function FlashSaleWarRoom() {
                                         pushLog(`[ORDER] Manual order dispatched to Master broker Node: ${activeLeaderId}`, "INFO");
                                         const ws = socketsRef.current[activeLeaderId];
                                         if (ws && ws.readyState === WebSocket.OPEN) {
-                                            // FIXED: Push real produce event to WebSocket
                                             ws.send(JSON.stringify({ action: "produce", payload: "MANUAL_SALE_ORDER" }));
                                             opsCounterRef.current += 1;
                                         }
@@ -543,7 +571,7 @@ export default function FlashSaleWarRoom() {
                             ].map(({ k, v, c }) => (
                                 <div key={k} style={{
                                     display: "flex", justifyContent: "space-between",
-                                    padding: "6px 0", borderBottom: "1px solid #f1f5f9", fontSize: 11,
+                                    padding: "5px 0", borderBottom: "1px solid #f1f5f9", fontSize: 11,
                                 }}>
                                     <span style={{ color: "#475569", fontWeight: 500 }}>{k}</span>
                                     <span style={{ color: c, fontWeight: "bold" }} className="mono">{v}</span>
@@ -711,81 +739,110 @@ export default function FlashSaleWarRoom() {
                             })}
                         </div>
 
+                        {/* Interactive Diagnostic Panel */}
                         <div style={{
-                            display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 10,
+                            display: "flex", flexDirection: "column", gap: 8,
                             padding: "12px 14px", borderRadius: 14,
                             background: "#ffffff", border: "1px solid #e2e8f0",
-                            boxShadow: "0 1px 3px rgba(0,0,0,0.01)"
+                            boxShadow: "0 1px 3px rgba(0,0,0,0.01)",
+                            justifyContent: "center", alignItems: "center"
                         }}>
-                            {[
-                                { n: "01", title: "The Spike",     desc: "Enable Chaos Mode. Watch traffic spike while MQ absorbs every order." },
-                                { n: "02", title: "Replication",   desc: "Orange dots = Leader replicating to Followers via Raft before ACK." },
-                                { n: "03", title: "Failover Test", desc: "Kill the Leader. Follower wins election in 2s. Traffic never drops." },
-                            ].map(({ n, title, desc }) => (
-                                <div key={n} style={{
-                                    padding: "10px 12px", borderRadius: 10,
-                                    background: "#f8fafc", border: "1px solid #e2e8f0",
-                                }}>
-                                    <div style={{ color: "#ea580c", fontSize: 9, fontWeight: "700", marginBottom: 4 }}>STEP {n}</div>
-                                    <div style={{ fontSize: 11, fontWeight: "bold", color: "#334155", marginBottom: 4 }}>{title}</div>
-                                    <div style={{ fontSize: 10, color: "#64748b", lineHeight: 1.55 }}>{desc}</div>
-                                </div>
-                            ))}
+                            <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
+                                <Info size={14} style={{ color: "#ea580c" }} />
+                                <span style={{ fontSize: 11, fontWeight: "700", color: "#334155" }}>Architecture & Consensus Diagnostics</span>
+                            </div>
+                            <p style={{ fontSize: 10, color: "#64748b", textAlign: "center", margin: "2px 0 6px 0", lineHeight: 1.4 }}>
+                                Analyze the transaction sequence mapping, disk appends, and consensus workflows.
+                            </p>
+
+                            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8, width: "100%" }}>
+                                <button
+                                    onClick={() => setShowSystemVisualizer(true)}
+                                    style={{
+                                        padding: "10px 0",
+                                        background: "#f8fafc", border: "1px solid #cbd5e1",
+                                        borderRadius: 8, color: "#0f172a", fontSize: 11,
+                                        fontWeight: "700", cursor: "pointer", display: "flex",
+                                        alignItems: "center", justifyContent: "center", gap: 6,
+                                        transition: "all .15s"
+                                    }}
+                                    onMouseEnter={e => { e.currentTarget.style.background = "#ea580c"; e.currentTarget.style.color = "#ffffff"; e.currentTarget.style.borderColor = "#ea580c"; }}
+                                    onMouseLeave={e => { e.currentTarget.style.background = "#f8fafc"; e.currentTarget.style.color = "#0f172a"; e.currentTarget.style.borderColor = "#cbd5e1"; }}
+                                >
+                                    <Radio size={12} /> SYSTEM LAYER
+                                </button>
+                                <button
+                                    onClick={() => setShowNodeVisualizer(true)}
+                                    style={{
+                                        padding: "10px 0",
+                                        background: "#f8fafc", border: "1px solid #cbd5e1",
+                                        borderRadius: 8, color: "#0f172a", fontSize: 11,
+                                        fontWeight: "700", cursor: "pointer", display: "flex",
+                                        alignItems: "center", justifyContent: "center", gap: 6,
+                                        transition: "all .15s"
+                                    }}
+                                    onMouseEnter={e => { e.currentTarget.style.background = "#8b5cf6"; e.currentTarget.style.color = "#ffffff"; e.currentTarget.style.borderColor = "#8b5cf6"; }}
+                                    onMouseLeave={e => { e.currentTarget.style.background = "#f8fafc"; e.currentTarget.style.color = "#0f172a"; e.currentTarget.style.borderColor = "#cbd5e1"; }}
+                                >
+                                    <HardDrive size={12} /> NODE INTERNALS
+                                </button>
+                            </div>
                         </div>
                     </div>
 
                     <div style={{ display: "flex", flexDirection: "column", gap: 10, overflow: "hidden" }}>
-                        <Panel accent="rgba(124,58,237,.5)" label="DISK EXPLORER" icon={<HardDrive size={13} />}>
-                            {NODE_IDS.map(nodeId => {
-                                const state   = nodes[nodeId];
-                                const pct     = Math.min(state.diskGB * 100, 100);
-                                const isDead  = state.status === "DEAD";
-                                const barCol  = pct > 80
-                                    ? "linear-gradient(90deg,#ff2244,#ff6b35)"
-                                    : "linear-gradient(90deg, #8b5cf6, #06b6d4)";
 
-                                return (
-                                    <div key={nodeId} style={{ marginBottom: 12, opacity: isDead ? 0.3 : 1, transition: "opacity .5s" }}>
-                                        <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 4, fontSize: 10 }}>
-                                            <span style={{ color: STATUS_COLOR[state.status] || "#64748b", fontWeight: "bold" }} className="mono">{nodeId}</span>
-                                            <span style={{ color: "#64748b", fontWeight: 500 }} className="mono">
-        {(state.diskGB * 1024).toFixed(1)} MB / 1 024 MB
-        </span>
-                                        </div>
-                                        <div style={{
-                                            height: 8, background: "#f1f5f9", borderRadius: 4,
-                                            border: "1px solid #e2e8f0", overflow: "hidden",
-                                        }}>
-                                            <div className="disk-bar" style={{
-                                                height: "100%", borderRadius: 4,
-                                                width: `${pct}%`, background: barCol,
-                                                color: pct > 80 ? "#ea580c" : "#8b5cf6",
-                                            }} />
-                                        </div>
-                                        <div style={{
-                                            display: "flex", justifyContent: "space-between",
-                                            marginTop: 3, fontSize: 9, color: "#94a3b8", fontWeight: 500
-                                        }} className="mono">
-                                            <span>{state.segments} LogSegment(s)</span>
-                                            <span>orders-{String(state.segments - 1).padStart(5, "0")}.log</span>
-                                        </div>
+                        {/* Interactive Storage Explorer Panel */}
+                        <Panel accent="rgba(124,58,237,.5)" label="STORAGE ENGINE EXPLORER" icon={<HardDrive size={13} />}>
+                            <div style={{ padding: "8px 0", display: "flex", flexDirection: "column", gap: 12 }}>
+                                <div style={{
+                                    background: "rgba(139, 92, 246, 0.03)",
+                                    border: "1px dashed rgba(139, 92, 246, 0.2)",
+                                    borderRadius: 8,
+                                    padding: "12px 14px"
+                                }}>
+                                    <div style={{ fontSize: 11, fontWeight: "bold", color: "#8b5cf6", display: "flex", alignItems: "center", gap: 6, marginBottom: 4 }}>
+                                        <HardDrive size={13} /> SEGMENTED STORAGE ARCHITECTURE
                                     </div>
-                                );
-                            })}
+                                    <p style={{ fontSize: 10, color: "#64748b", lineHeight: 1.4, margin: 0 }}>
+                                        Messages are stored in append-only sequential log segments on disk paired with fixed-size 20-byte coordinate indices for O(1) reads.
+                                    </p>
+                                </div>
 
-                            <div style={{ borderTop: "1px solid #f1f5f9", paddingTop: 10, marginTop: 2 }}>
-                                <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 6 }}>
-                                    {[
-                                        ["LogSegment",  "Append-only"],
-                                        ["IndexSegment","O(1) lookup"],
-                                        ["Replication", "Sync / Raft"],
-                                        ["Ack Policy",  "Majority (n+1)"],
-                                    ].map(([k, v]) => (
-                                        <div key={k}>
-                                            <div style={{ fontSize: 9, color: "#94a3b8", fontWeight: "bold" }}>{k}</div>
-                                            <div style={{ fontSize: 10, color: "#0284c7", fontWeight: "bold" }}>{v}</div>
-                                        </div>
-                                    ))}
+                                <button
+                                    onClick={() => setShowStorageVisualizer(true)}
+                                    style={{
+                                        width: "100%", padding: "12px 0",
+                                        background: "linear-gradient(135deg, #8b5cf6, #7c3aed)",
+                                        border: "none", borderRadius: 8, cursor: "pointer",
+                                        color: "#ffffff", fontWeight: "700", fontSize: 12,
+                                        letterSpacing: "0.05em", display: "flex", alignItems: "center",
+                                        justifyContent: "center", gap: 6,
+                                        boxShadow: "0 2px 4px rgba(139, 92, 246, 0.15)",
+                                        transition: "transform .12s, opacity .15s",
+                                    }}
+                                    onMouseEnter={e => e.currentTarget.style.opacity = "0.9"}
+                                    onMouseLeave={e => e.currentTarget.style.opacity = "1"}
+                                    onMouseDown={e => e.currentTarget.style.transform = "scale(.97)"}
+                                    onMouseUp={e => e.currentTarget.style.transform = "scale(1)"}
+                                >
+                                    <HardDrive size={12} /> OPEN STORAGE VISUALIZER
+                                </button>
+
+                                <div style={{ borderTop: "1px solid #f1f5f9", paddingTop: 10, marginTop: 4 }}>
+                                    <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 6 }}>
+                                        {[
+                                            ["LogSegment",  "Append-only log"],
+                                            ["IndexSegment","O(1) coordinate index"],
+                                            ["SegmentPair", "Bounded Wrapper"],
+                                            ["Active Limit","1 GB Rollover"],
+                                        ].map(([k, v]) => (
+                                            <div key={k}>
+                                                <div style={{ fontSize: 9, color: "#94a3b8", fontWeight: "bold" }}>{k}</div>
+                                                <div style={{ fontSize: 10, color: "#8b5cf6", fontWeight: "bold" }}>{v}</div>
+                                            </div>
+                                        ))}
+                                    </div>
                                 </div>
                             </div>
                         </Panel>
@@ -830,6 +887,21 @@ export default function FlashSaleWarRoom() {
                     </div>
                 </div>
             </div>
+
+            {/* Modal System Topology Visualization Component */}
+            {showSystemVisualizer && (
+                <SystemWorkflowVisualizer onClose={() => setShowSystemVisualizer(false)} />
+            )}
+
+            {/* Modal Node Internals Visualization Component */}
+            {showNodeVisualizer && (
+                <NodeInternalVisualizer onClose={() => setShowNodeVisualizer(false)} />
+            )}
+
+            {/* Modal Storage Internals Visualization Component */}
+            {showStorageVisualizer && (
+                <StorageVisualizer onClose={() => setShowStorageVisualizer(false)} />
+            )}
         </>
     );
 }

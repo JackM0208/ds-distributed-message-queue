@@ -83,21 +83,7 @@ public class BrokerMain {
         RaftNodeImpl clusterNode = new RaftNodeImpl(port, storageManager);
         TcpServerImpl server = new TcpServerImpl(queueManager, clusterNode, port);
 
-        // Periodically queries physical drive and reports actual offsets & log file sizes
-        new Thread(() -> {
-            while (true) {
-                try {
-                    Thread.sleep(2000);
-                    if (bridge != null) {
-                        double fillRatio = storageManager.getActiveSegmentFillRatio("flash_sale_orders");
-                        long offset = storageManager.getGlobalOffsetCount("flash_sale_orders");
-                        bridge.emitAppend("flash_sale_orders", offset, fillRatio);
-                    }
-                } catch (Exception e) {
-                    // Fail quietly
-                }
-            }
-        }, "InitialStateReporter").start();
+        // FIXED: Removed redundant initial state reporter thread
 
         BrokerMain broker = new BrokerMain(server, storageManager);
         broker.start();

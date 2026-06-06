@@ -67,13 +67,20 @@ public class BrokerWebSocketBridge {
         broadcast(payload);
     }
 
-    public void emitClusterStatus(String status, int cpu, int memUsed) {
+    /**
+     * FIXED: Extended cluster status telemetry payload. Broadcasts dynamic on-disk log
+     * statistics along with JVM hardware metrics to keep the Disk Explorer accurate.
+     */
+    public void emitClusterStatus(String status, int cpu, int memUsed, long offset, double diskGB, int segments) {
         String payload = json(
-                "event",  "cluster",
-                "node",   nodeId,
-                "status", status,
-                "cpu",    cpu,
-                "mem",    memUsed
+                "event",    "cluster",
+                "node",     nodeId,
+                "status",   status,
+                "cpu",      cpu,
+                "mem",      memUsed,
+                "offset",   offset,
+                "fileSize", Math.round(diskGB * 1000.0) / 1000.0,
+                "segments", segments
         );
         broadcast(payload);
     }
@@ -133,7 +140,6 @@ public class BrokerWebSocketBridge {
                         int start = msg.indexOf("\"payload\":\"") + 11;
                         int end = msg.indexOf("\"", start);
                         if (end > start) {
-                            // FIXED: Added newline character to the end of parsed web payloads for raw file legibility
                             payload = msg.substring(start, end) + "\n";
                         }
                     }

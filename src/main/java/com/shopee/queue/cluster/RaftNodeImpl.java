@@ -12,7 +12,7 @@ import java.util.*;
 public class RaftNodeImpl implements IClusterNode {
     private static final Logger logger = LoggerFactory.getLogger(RaftNodeImpl.class);
 
-    // Dynamic singleton instance accessor to prevent circular dependency bindings
+    // FIXED: Dynamic singleton instance accessor to prevent circular dependency bindings
     private static RaftNodeImpl activeInstance;
 
     private enum State { FOLLOWER, CANDIDATE, LEADER }
@@ -43,10 +43,12 @@ public class RaftNodeImpl implements IClusterNode {
         startTelemetryReporter();
     }
 
+    // FIXED: Added public singleton getter
     public static RaftNodeImpl getActiveInstance() {
         return activeInstance;
     }
 
+    // FIXED: Added public term getter
     public long getCurrentTerm() {
         return currentTerm;
     }
@@ -83,10 +85,19 @@ public class RaftNodeImpl implements IClusterNode {
                         int baseCpu = (currentState == State.LEADER) ? 45 : 12;
                         int cpuLoad = Math.min(99, Math.max(3, baseCpu + rand.nextInt(15) - 7));
 
+                        // FIXED: Query the active physical storage coordinates in real-time
+                        double fillRatio = storageManager.getActiveSegmentFillRatio("flash_sale_orders");
+                        long offset = storageManager.getGlobalOffsetCount("flash_sale_orders");
+                        int segments = storageManager.getSegmentCount("flash_sale_orders");
+
+                        // Broadcast complete physical, logical, and consensus status to the UI bridge
                         com.shopee.queue.BrokerMain.bridge.emitClusterStatus(
                                 currentState.name(),
                                 cpuLoad,
-                                memPercent
+                                memPercent,
+                                offset,
+                                fillRatio,
+                                segments
                         );
                     }
                 } catch (Exception e) {
@@ -180,10 +191,6 @@ public class RaftNodeImpl implements IClusterNode {
         }
     }
 
-    /**
-     * Follower Log Replication Handler. Intercepts incoming AppendEntries replication requests
-     * containing log data and writes the payload to disk.
-     */
     public synchronized void handleAppendEntriesWithData(long term, String leaderId, String topic, long offset, byte[] payload) {
         if (term >= currentTerm) {
             if (term > currentTerm) stepDown(term);

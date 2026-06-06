@@ -77,7 +77,7 @@ The orchestrator converts HTTP command payloads from the UI into standard `docke
 
 Open a **second terminal window**, navigate to the orchestrator directory, and start the Node process:
 ```bash
-cd ds-distributed-message-queue/orchestrator
+cd orchestrator
 node index.js
 ```
 *Verify that you see: `[ORCH ...] Docker Orchestration Sidecar active on http://127.0.0.1:3001`.*
@@ -89,7 +89,7 @@ This compiles your styles, renders the dashboard components, and opens WebSocket
 
 Open a **third terminal window**, navigate to the frontend directory, and start Vite:
 ```bash
-cd ds-distributed-message-queue/frontend
+cd frontend
 npm run dev
 ```
 *Vite will start. Open your web browser and navigate to the address shown in the output (typically **`http://localhost:3000/`** or **`http://localhost:5173/`**).*

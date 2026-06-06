@@ -64,6 +64,14 @@ public class StorageManagerImpl implements IStorageManager {
     }
 
     /**
+     * FIXED: Queries the total number of physical segment files (log/index pairs) allocated for a topic.
+     */
+    public int getSegmentCount(String topic) {
+        TopicStorage storage = topicStorageMap.get(topic);
+        return (storage != null) ? storage.segments.size() : 1;
+    }
+
+    /**
      * Entry point for standard Leader writes. Generates a new global offset sequentially.
      */
     public long appendToLog(String topic, byte[] data) throws IOException {
