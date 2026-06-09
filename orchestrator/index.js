@@ -30,18 +30,30 @@ function log(msg) { console.log(`[ORCH ${new Date().toISOString()}] ${msg}`); }
 function err(msg) { console.error(`[ORCH ${new Date().toISOString()}] ERROR: ${msg}`); }
 
 /**
- * Inspects a target container's current state.
- * Returns: "running", "exited", "paused", "restarting", or "not found"
+ * Queries container status using a single fast docker ps command.
  */
-async function dockerStatus(node) {
-    try {
-        const { stdout } = await execAsync(
-            `docker inspect --format='{{.State.Status}}' ${node}`
-        );
-        return stdout.trim();
-    } catch (e) {
-        return "not found";
-    }
+async function getDockerStatuses() {
+    const { stdout } = await execAsync(
+        `docker ps --filter name=broker -a --format "{{.Names}} {{.State}}"`
+    );
+    const lines = stdout.trim().split("\n");
+    const statuses = {};
+    
+    // Initialize default states
+    ALLOWED_NODES.forEach(n => {
+        statuses[n] = "exited";
+    });
+
+    lines.forEach(line => {
+        const parts = line.trim().split(/\s+/);
+        if (parts.length >= 2) {
+            const [name, state] = parts;
+            if (statuses[name] !== undefined) {
+                statuses[name] = state;
+            }
+        }
+    });
+    return statuses;
 }
 
 /* ── Request Stream Reader ──────────────────────────────────────── */
@@ -89,11 +101,8 @@ async function handler(req, res) {
 
     // GET /status
     if (method === "GET" && url === "/status") {
-        const statuses = {};
         try {
-            await Promise.all(ALLOWED_NODES.map(async n => {
-                statuses[n] = await dockerStatus(n);
-            }));
+            const statuses = await getDockerStatuses();
             return send(res, 200, { ok: true, nodes: statuses });
         } catch (e) {
             err(`Status check failed: ${e.message}`);

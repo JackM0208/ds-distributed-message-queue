@@ -208,6 +208,7 @@ export default function FlashSaleWarRoom() {
 
     /* ── Connect WebSockets to Java Brokers ── */
     useEffect(() => {
+        let isMounted = true;
         NODE_IDS.forEach(nodeId => {
             const port = WS_PORTS[nodeId];
             const connect = () => {
@@ -221,7 +222,9 @@ export default function FlashSaleWarRoom() {
 
                 ws.onclose = () => {
                     setWsConnected(p => ({ ...p, [nodeId]: false }));
-                    setTimeout(connect, 3000);
+                    if (isMounted) {
+                        setTimeout(connect, 3000);
+                    }
                 };
 
                 ws.onmessage = (event) => {
@@ -308,6 +311,7 @@ export default function FlashSaleWarRoom() {
         });
 
         return () => {
+            isMounted = false;
             Object.values(socketsRef.current).forEach(ws => ws.close());
         };
     }, [pushLog, spawnPulse]);
