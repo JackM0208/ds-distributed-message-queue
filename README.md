@@ -100,19 +100,31 @@ npm run dev
 
 Once the portal is open and connected to the running cluster, you can launch the external Java clients to verify data transmission:
 
+#### Option A: Run on Host Machine (Requires Local Java & Maven)
 * **Terminal A (Start the Consumer)**:
   Runs a polling consumer client that handles automatic leader redirection and commits reading offsets:
   ```bash
-  cd ds-distributed-message-queue
   mvn exec:java -Dexec.mainClass="com.shopee.queue.client.Consumer"
   ```
 
 * **Terminal B (Run the Producer)**:
   Dispatches a simulated Shopee Flash Sale order transaction to the cluster:
   ```bash
-  cd ds-distributed-message-queue
   mvn exec:java -Dexec.mainClass="com.shopee.queue.client.Producer"
   ```
+
+#### Option B: Run Inside Docker Containers (Zero Local Dependencies)
+If you don't have JDK or Maven configured on your host machine, you can run the clients directly inside the running Docker containers:
+* **Terminal A (Start the Consumer)**:
+  ```bash
+  docker exec -it broker-3 java -cp /app/classes:/app/dependency/* com.shopee.queue.client.Consumer
+  ```
+
+* **Terminal B (Run the Producer)**:
+  ```bash
+  docker exec -it broker-3 java -cp /app/classes:/app/dependency/* com.shopee.queue.client.Producer
+  ```
+  *(Note: Run inside the container where the active Leader is located to ensure instant connection without external port redirections).*
 
 ---
 
