@@ -65,7 +65,6 @@ public class ClientHandler implements Runnable {
                                     packet.getTopic(), null, packet.getMessageId(), 2);
 
                             out.writeObject(ack);
-                            out.reset();
                             out.flush();
                         }
 
@@ -139,7 +138,12 @@ public class ClientHandler implements Runnable {
 
                         else if (packet.getType() == 6) {
                             // FIXED: Execute complete Term validation check first to reset follower election timer
-                            raftNode.handleAppendEntries(packet.getTerm(), packet.getSenderId(), null);
+
+                            // BAD OLD CODE COMMENTED OUT:
+                            // raftNode.handleAppendEntries(packet.getTerm(), packet.getSenderId(), null);
+
+                            // NEW CODE DENOTED: Pass the packet's payload (the leader's offset) down to the handleAppendEntries receiver
+                            raftNode.handleAppendEntries(packet.getTerm(), packet.getSenderId(), packet.getPayload());
 
                             if (packet.getPayload() != null && !packet.getTopic().equals("cluster") && raftNode instanceof RaftNodeImpl) {
                                 // FIXED: Passed all 5 required parameters to match the RaftNodeImpl signature

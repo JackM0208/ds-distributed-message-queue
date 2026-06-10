@@ -3,10 +3,13 @@ package com.shopee.queue.cluster;
 import com.shopee.queue.api.IClusterNode;
 import com.shopee.queue.common.config.BrokerConfig;
 import com.shopee.queue.storage.StorageManagerImpl;
+import com.shopee.queue.network.protocol.MessagePacket;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import java.lang.management.ManagementFactory;
 import java.lang.management.MemoryMXBean;
+import java.io.ObjectInputStream;
+import java.io.ObjectOutputStream;
 import java.util.*;
 
 public class RaftNodeImpl implements IClusterNode {
@@ -25,6 +28,10 @@ public class RaftNodeImpl implements IClusterNode {
     private long currentTerm = 0;
     private String votedFor = null;
     private long lastHeartbeatTime;
+
+    // NEW CODE DENOTED: State trackers to prevent duplicate recovery thread collisions
+    private volatile boolean isCatchingUp = false;
+    private final java.util.concurrent.atomic.AtomicLong targetCatchUpOffset = new java.util.concurrent.atomic.AtomicLong(0);
 
     public RaftNodeImpl(int port, StorageManagerImpl storageManager) {
         this.storageManager = storageManager;
@@ -163,9 +170,15 @@ public class RaftNodeImpl implements IClusterNode {
 
     @Override
     public void replicateData() {
+        // NEW CODE INJECTED: Fetch leader's active offset count
+        long currentOffset = storageManager.getGlobalOffsetCount("flash_sale_orders");
         for (String target : BrokerConfig.CLUSTER_NODES) {
             if (target.equals(nodeId)) continue;
-            clusterClient.sendHeartbeat(target, currentTerm, nodeId);
+            // OLD CODE COMMENTED OUT:
+            // clusterClient.sendHeartbeat(target, currentTerm, nodeId);
+
+            // NEW CODE INJECTED: Pass current leader offset to the heartbeat client
+            clusterClient.sendHeartbeat(target, currentTerm, nodeId, currentOffset);
         }
     }
 
@@ -188,7 +201,94 @@ public class RaftNodeImpl implements IClusterNode {
             this.leaderId = leaderId;
             this.lastHeartbeatTime = System.currentTimeMillis();
             this.currentState = State.FOLLOWER;
+
+            // NEW CODE INJECTED: Follower Log Catch-Up Sync Check
+            if (data != null && data.length == 8) {
+                long leaderOffset = java.nio.ByteBuffer.wrap(data).getLong();
+                long localOffset = storageManager.getGlobalOffsetCount("flash_sale_orders");
+
+                if (localOffset < leaderOffset) {
+                    // Update the target catch-up limit to the highest known leader value
+                    long currentTarget = targetCatchUpOffset.get();
+                    if (leaderOffset > currentTarget) {
+                        targetCatchUpOffset.set(leaderOffset);
+                    }
+
+                    if (!isCatchingUp) {
+                        isCatchingUp = true;
+                        logger.warn("[RAFT] Follower node is behind Leader! Local Offset: {}, Target Offset: {}. Starting single-socket recovery thread...", localOffset, targetCatchUpOffset.get());
+                        triggerLogCatchUp(leaderId, localOffset);
+                    }
+                }
+            }
         }
+    }
+
+    // BAD OLD CODE COMMENTED OUT:
+    /*
+    private void triggerLogCatchUp(String leaderId, long startOffset, long endOffset) {
+        new Thread(() -> {
+            ...
+            while (nextPullOffset < endOffset) {
+                try (java.net.Socket socket = new java.net.Socket()) {
+                   // sockets opened inside while loop caused connection fatigue under load...
+                }
+            }
+        })
+    }
+    */
+
+    // NEW CODE DENOTED:
+    /**
+     * Enhanced single-socket recovery thread. Connects once and pulls all missing payloads sequentially
+     * over a single open TCP connection. Dynamically expands recovery limits if new writes arrive.
+     */
+    private void triggerLogCatchUp(String leaderId, long startOffset) {
+        new Thread(() -> {
+            String[] parts = leaderId.split(":");
+            String host = parts[0];
+            int port = Integer.parseInt(parts[1]);
+
+            long nextPullOffset = startOffset;
+            logger.info("[RECOVERY] Starting single-socket background catch-up from offset {}", nextPullOffset);
+
+            try (java.net.Socket socket = new java.net.Socket()) {
+                socket.connect(new java.net.InetSocketAddress(host, port), 2000);
+                try (ObjectOutputStream out = new ObjectOutputStream(socket.getOutputStream());
+                     ObjectInputStream in = new ObjectInputStream(socket.getInputStream())) {
+
+                    // Read sequentially up to the dynamic target limit
+                    while (nextPullOffset < targetCatchUpOffset.get()) {
+                        // Type 1: Pull Message Request
+                        MessagePacket request = new MessagePacket("flash_sale_orders", null, nextPullOffset, 1);
+                        out.writeObject(request);
+                        out.flush();
+
+                        Object response = in.readObject();
+                        if (response instanceof MessagePacket) {
+                            MessagePacket received = (MessagePacket) response;
+                            if (received.getMessageId() != -1 && received.getPayload() != null) {
+                                // Write this missing payload sequentially
+                                storageManager.appendReplicatedEntry("flash_sale_orders", nextPullOffset, received.getPayload());
+                                logger.info("[RECOVERY] Successfully synced offset {} from Leader", nextPullOffset);
+                                nextPullOffset++;
+                            } else {
+                                // Offset not ready on leader yet or empty response
+                                break;
+                            }
+                        } else {
+                            break;
+                        }
+                    }
+                }
+            } catch (Exception e) {
+                logger.error("[RECOVERY] Error during single-socket log sync: " + e.getMessage());
+            } finally {
+                // Reset state flag to allow subsequent catch-up evaluations
+                isCatchingUp = false;
+                logger.info("[RECOVERY] Log catch-up sync completed. Follower offset is now aligned up to offset {}", nextPullOffset);
+            }
+        }, "FollowerLogCatchUpSync").start();
     }
 
     public synchronized void handleAppendEntriesWithData(long term, String leaderId, String topic, long offset, byte[] payload) {
@@ -197,6 +297,18 @@ public class RaftNodeImpl implements IClusterNode {
             this.leaderId = leaderId;
             this.lastHeartbeatTime = System.currentTimeMillis();
             this.currentState = State.FOLLOWER;
+
+            // NEW CODE INJECTED: Validate if there are physical gaps before executing live appends
+            long localOffset = storageManager.getGlobalOffsetCount(topic);
+            if (offset > localOffset) {
+                logger.warn("[REPLICATION] Rejecting live write for offset {} due to structural log gap (local offset: {}). Triggering catch-up.", offset, localOffset);
+                // Repackage the target offset as a catch-up command
+                byte[] catchUpData = new byte[8];
+                java.nio.ByteBuffer.wrap(catchUpData).putLong(offset + 1);
+                handleAppendEntries(term, leaderId, catchUpData);
+                return; // Reject and ignore this live write for now
+            }
+
             try {
                 logger.info("[REPLICATION] Writing replicated log from Leader: {} at Term: {}. Topic: {}, Offset: {}", leaderId, term, topic, offset);
                 storageManager.appendReplicatedEntry(topic, offset, payload);

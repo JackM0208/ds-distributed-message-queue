@@ -34,7 +34,16 @@ public class ClusterClient {
         }
     }
 
-    public void sendHeartbeat(String target, long term, String nodeId) {
+    // OLD CODE COMMENTED OUT:
+    // public void sendHeartbeat(String target, long term, String nodeId) {
+
+    // NEW CODE DENOTED:
+    /**
+     * Enhanced heartbeat implementation that serializes and transmits the active
+     * leader's current global log offset inside the payload. This enables offline followers
+     * to automatically audit their local offsets and trigger catch-up synchronization on wakeup.
+     */
+    public void sendHeartbeat(String target, long term, String nodeId, long leaderOffset) {
         String[] parts = target.split(":");
         String host = parts[0];
         int port = Integer.parseInt(parts[1]);
@@ -47,7 +56,11 @@ public class ClusterClient {
 
                 ObjectInputStream in = new ObjectInputStream(socket.getInputStream());
 
-                MessagePacket p = new MessagePacket("cluster", null, 0, 6); // Type 6: Heartbeat
+                // NEW CODE: Pack leader's offset into 8-byte array payload
+                byte[] payload = new byte[8];
+                java.nio.ByteBuffer.wrap(payload).putLong(leaderOffset);
+
+                MessagePacket p = new MessagePacket("cluster", payload, 0, 6); // Type 6: Heartbeat
                 p.setTerm(term);
                 p.setSenderId(nodeId);
                 out.writeObject(p);
