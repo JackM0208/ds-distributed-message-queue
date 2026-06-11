@@ -254,6 +254,7 @@ public class RaftNodeImpl implements IClusterNode {
 
             try (java.net.Socket socket = new java.net.Socket()) {
                 socket.connect(new java.net.InetSocketAddress(host, port), 2000);
+                socket.setSoTimeout(5000); // FIXED: Set 5-second read timeout to prevent infinite blocking on network drop
                 try (ObjectOutputStream out = new ObjectOutputStream(socket.getOutputStream());
                      ObjectInputStream in = new ObjectInputStream(socket.getInputStream())) {
 
@@ -263,6 +264,7 @@ public class RaftNodeImpl implements IClusterNode {
                         MessagePacket request = new MessagePacket("flash_sale_orders", null, nextPullOffset, 1);
                         out.writeObject(request);
                         out.flush();
+                        out.reset(); // FIXED: Clear object serialization stream cache
 
                         Object response = in.readObject();
                         if (response instanceof MessagePacket) {
@@ -298,6 +300,16 @@ public class RaftNodeImpl implements IClusterNode {
             this.lastHeartbeatTime = System.currentTimeMillis();
             this.currentState = State.FOLLOWER;
 
+            // FIXED: If background recovery catch-up is active, reject live appends to prevent race condition duplicates
+            if (isCatchingUp) {
+                logger.warn("[REPLICATION] Rejecting live write for offset {} because background catch-up is active.", offset);
+                long currentTarget = targetCatchUpOffset.get();
+                if (offset + 1 > currentTarget) {
+                    targetCatchUpOffset.set(offset + 1);
+                }
+                return;
+            }
+
             // NEW CODE INJECTED: Validate if there are physical gaps before executing live appends
             long localOffset = storageManager.getGlobalOffsetCount(topic);
             if (offset > localOffset) {
@@ -307,6 +319,12 @@ public class RaftNodeImpl implements IClusterNode {
                 java.nio.ByteBuffer.wrap(catchUpData).putLong(offset + 1);
                 handleAppendEntries(term, leaderId, catchUpData);
                 return; // Reject and ignore this live write for now
+            }
+
+            // FIXED: Avoid duplicate writes of already-received historical logs
+            if (offset < localOffset) {
+                logger.info("[REPLICATION] Ignoring duplicate live write for offset {} (local offset: {})", offset, localOffset);
+                return;
             }
 
             try {
