@@ -245,46 +245,52 @@ public class RaftNodeImpl implements IClusterNode {
      */
     private void triggerLogCatchUp(String leaderId, long startOffset) {
         new Thread(() -> {
-            String[] parts = leaderId.split(":");
-            String host = parts[0];
-            int port = Integer.parseInt(parts[1]);
-
             long nextPullOffset = startOffset;
-            logger.info("[RECOVERY] Starting single-socket background catch-up from offset {}", nextPullOffset);
+            try {
+                String host = leaderId;
+                int port = 8888; // Default internal broker port
+                if (leaderId.contains(":")) {
+                    String[] parts = leaderId.split(":");
+                    host = parts[0];
+                    port = Integer.parseInt(parts[1]);
+                }
 
-            try (java.net.Socket socket = new java.net.Socket()) {
-                socket.connect(new java.net.InetSocketAddress(host, port), 2000);
-                socket.setSoTimeout(5000); // FIXED: Set 5-second read timeout to prevent infinite blocking on network drop
-                try (ObjectOutputStream out = new ObjectOutputStream(socket.getOutputStream());
-                     ObjectInputStream in = new ObjectInputStream(socket.getInputStream())) {
+                logger.info("[RECOVERY] Starting single-socket background catch-up from offset {}", nextPullOffset);
 
-                    // Read sequentially up to the dynamic target limit
-                    while (nextPullOffset < targetCatchUpOffset.get()) {
-                        // Type 1: Pull Message Request
-                        MessagePacket request = new MessagePacket("flash_sale_orders", null, nextPullOffset, 1);
-                        out.writeObject(request);
-                        out.flush();
-                        out.reset(); // FIXED: Clear object serialization stream cache
+                try (java.net.Socket socket = new java.net.Socket()) {
+                    socket.connect(new java.net.InetSocketAddress(host, port), 2000);
+                    socket.setSoTimeout(5000); // FIXED: Set 5-second read timeout to prevent infinite blocking on network drop
+                    try (ObjectOutputStream out = new ObjectOutputStream(socket.getOutputStream());
+                         ObjectInputStream in = new ObjectInputStream(socket.getInputStream())) {
 
-                        Object response = in.readObject();
-                        if (response instanceof MessagePacket) {
-                            MessagePacket received = (MessagePacket) response;
-                            if (received.getMessageId() != -1 && received.getPayload() != null) {
-                                // Write this missing payload sequentially
-                                storageManager.appendReplicatedEntry("flash_sale_orders", nextPullOffset, received.getPayload());
-                                logger.info("[RECOVERY] Successfully synced offset {} from Leader", nextPullOffset);
-                                nextPullOffset++;
+                        // Read sequentially up to the dynamic target limit
+                        while (nextPullOffset < targetCatchUpOffset.get()) {
+                            // Type 1: Pull Message Request
+                            MessagePacket request = new MessagePacket("flash_sale_orders", null, nextPullOffset, 1);
+                            out.writeObject(request);
+                            out.flush();
+                            out.reset(); // FIXED: Clear object serialization stream cache
+
+                            Object response = in.readObject();
+                            if (response instanceof MessagePacket) {
+                                MessagePacket received = (MessagePacket) response;
+                                if (received.getMessageId() != -1 && received.getPayload() != null) {
+                                    // Write this missing payload sequentially
+                                    storageManager.appendReplicatedEntry("flash_sale_orders", nextPullOffset, received.getPayload());
+                                    logger.info("[RECOVERY] Successfully synced offset {} from Leader", nextPullOffset);
+                                    nextPullOffset++;
+                                } else {
+                                    // Offset not ready on leader yet or empty response
+                                    break;
+                                }
                             } else {
-                                // Offset not ready on leader yet or empty response
                                 break;
                             }
-                        } else {
-                            break;
                         }
                     }
                 }
             } catch (Exception e) {
-                logger.error("[RECOVERY] Error during single-socket log sync: " + e.getMessage());
+                logger.error("[RECOVERY] Error during single-socket log sync: " + e.getMessage(), e);
             } finally {
                 // Reset state flag to allow subsequent catch-up evaluations
                 isCatchingUp = false;

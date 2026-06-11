@@ -171,7 +171,7 @@ public class StorageManagerImpl implements IStorageManager {
 
     private static class TopicStorage {
         final String topicDir;
-        final List<SegmentPair> segments = new ArrayList<>();
+        final List<SegmentPair> segments = new java.util.concurrent.CopyOnWriteArrayList<>();
         final AtomicLong globalOffsetCounter = new AtomicLong(0);
 
         public TopicStorage(String topic, String rootDir) throws IOException {

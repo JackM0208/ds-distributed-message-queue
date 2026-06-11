@@ -52,6 +52,7 @@ public class Replicator {
 
                 try (Socket socket = new Socket()) {
                     socket.connect(new InetSocketAddress(host, port), TIMEOUT_MS);
+                    socket.setSoTimeout(2000); // FIXED: Add 2-second read timeout to prevent thread blocking
                     try (ObjectOutputStream out = new ObjectOutputStream(socket.getOutputStream());
                          ObjectInputStream in = new ObjectInputStream(socket.getInputStream())) {
 
@@ -108,6 +109,7 @@ public class Replicator {
 
                 try (Socket socket = new Socket()) {
                     socket.connect(new InetSocketAddress(host, port), TIMEOUT_MS);
+                    socket.setSoTimeout(2000); // FIXED: Add 2-second read timeout
                     try (ObjectOutputStream out = new ObjectOutputStream(socket.getOutputStream());
                          ObjectInputStream in = new ObjectInputStream(socket.getInputStream())) {
 

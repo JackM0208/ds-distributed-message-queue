@@ -17,7 +17,7 @@ public class IndexSegment {
     private final String filePath;
     private final RandomAccessFile randomAccessFile;
     private final FileChannel fileChannel;
-    private long writePosition = 0;
+    private volatile long writePosition = 0;
 
     public static class IndexData {
         public final long physicalPosition;

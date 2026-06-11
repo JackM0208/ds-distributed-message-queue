@@ -16,6 +16,7 @@ public class ClusterClient {
         try (Socket socket = new Socket()) {
             // Bind connection with a explicit fast timeout limit
             socket.connect(new InetSocketAddress(host, port), CONNECT_TIMEOUT_MS);
+            socket.setSoTimeout(2000); // FIXED: Add 2-second read timeout
 
             try (ObjectOutputStream out = new ObjectOutputStream(socket.getOutputStream());
                  ObjectInputStream in = new ObjectInputStream(socket.getInputStream())) {
@@ -50,6 +51,7 @@ public class ClusterClient {
 
         try (Socket socket = new Socket()) {
             socket.connect(new InetSocketAddress(host, port), CONNECT_TIMEOUT_MS);
+            socket.setSoTimeout(2000); // FIXED: Add 2-second read timeout
 
             try (ObjectOutputStream out = new ObjectOutputStream(socket.getOutputStream())) {
                 out.flush();
